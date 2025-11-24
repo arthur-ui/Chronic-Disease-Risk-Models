@@ -661,4 +661,4 @@ with tab_research:
         st.caption(
             "Bars show the absolute change in mean modelled risk within each subgroup "
             "after applying the selected intervention, relative to baseline."
-        )
+        
