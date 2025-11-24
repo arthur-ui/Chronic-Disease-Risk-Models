@@ -570,60 +570,61 @@ with tab_research:
             use_container_width=True
         )
 
-        # ---------- distributions (before vs after) — Plotly 3-panel histograms ----------
-        dist_df = pd.concat([
-            pd.DataFrame({"Risk": b_diab, "Disease": "Diabetes", "Scenario": "Baseline"}),
-            pd.DataFrame({"Risk": i_diab, "Disease": "Diabetes", "Scenario": "Post-intervention"}),
-            pd.DataFrame({"Risk": b_ckd, "Disease": "CKD", "Scenario": "Baseline"}),
-            pd.DataFrame({"Risk": i_ckd, "Disease": "CKD", "Scenario": "Post-intervention"}),
-            pd.DataFrame({"Risk": b_cvd, "Disease": "CVD", "Scenario": "Baseline"}),
-            pd.DataFrame({"Risk": i_cvd, "Disease": "CVD", "Scenario": "Post-intervention"}),
-        ], ignore_index=True)
+        # ---------- Δ-risk distributions (before vs after) — Plotly 3-panel histograms ----------
+        delta_diab = i_diab - b_diab
+        delta_ckd  = i_ckd - b_ckd
+        delta_cvd  = i_cvd - b_cvd
 
-        fig_dist = make_subplots(
+        fig_delta = make_subplots(
             rows=1, cols=3,
             subplot_titles=("Diabetes", "CKD", "CVD"),
             shared_yaxes=True,
             horizontal_spacing=0.06
         )
 
-        diseases = ["Diabetes", "CKD", "CVD"]
-        colors = {"Baseline": "rgba(31,119,180,0.6)", "Post-intervention": "rgba(255,127,14,0.6)"}
+        deltas = [delta_diab, delta_ckd, delta_cvd]
+        titles = ["Diabetes", "CKD", "CVD"]
 
-        for idx, disease in enumerate(diseases, start=1):
-            dsub = dist_df[dist_df["Disease"] == disease]
-
-            for scenario in ["Baseline", "Post-intervention"]:
-                mask = dsub["Scenario"] == scenario
-                fig_dist.add_trace(
-                    go.Histogram(
-                        x=dsub.loc[mask, "Risk"],
-                        name=scenario,
-                        opacity=0.6,
-                        marker_color=colors[scenario],
-                        showlegend=(idx == 1),
-                        nbinsx=40
-                    ),
-                    row=1, col=idx
-                )
-
-        fig_dist.update_layout(
-            barmode="overlay",
-            margin=dict(l=40, r=40, t=40, b=40),
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=-0.25,
-                xanchor="center",
-                x=0.5
+        for idx, (d_arr, title) in enumerate(zip(deltas, titles), start=1):
+            fig_delta.add_trace(
+                go.Histogram(
+                    x=d_arr,
+                    nbinsx=40,
+                    marker_color="rgba(31,119,180,0.7)",
+                    showlegend=False
+                ),
+                row=1, col=idx
             )
-        )
-        fig_dist.update_xaxes(title_text="Predicted risk", row=1, col=1)
-        fig_dist.update_xaxes(title_text="Predicted risk", row=1, col=2)
-        fig_dist.update_xaxes(title_text="Predicted risk", row=1, col=3)
-        fig_dist.update_yaxes(title_text="Count", row=1, col=1)
 
-        st.plotly_chart(fig_dist, use_container_width=True)
+        # Add vertical line at 0 in each panel
+        shapes = []
+        for idx in range(1, 4):
+            shapes.append(
+                dict(
+                    type="line",
+                    xref=f"x{idx}",
+                    yref=f"paper",
+                    x0=0, x1=0,
+                    y0=0, y1=1,
+                    line=dict(color="red", width=2, dash="dash")
+                )
+            )
+
+        fig_delta.update_layout(
+            shapes=shapes,
+            margin=dict(l=40, r=40, t=40, b=40),
+        )
+        fig_delta.update_xaxes(title_text="Change in predicted risk", row=1, col=1)
+        fig_delta.update_xaxes(title_text="Change in predicted risk", row=1, col=2)
+        fig_delta.update_xaxes(title_text="Change in predicted risk", row=1, col=3)
+        fig_delta.update_yaxes(title_text="Count", row=1, col=1)
+
+        st.plotly_chart(fig_delta, use_container_width=True)
+
+        st.caption(
+            "Histograms show the distribution of individual-level changes in predicted risk "
+            "after the intervention (Δ risk = post − baseline). Values < 0 indicate risk reduction."
+        )
 
         # ---------- subgroup summary ----------
         st.markdown(f"**Subgroup effects by {subgroup_var}**")
@@ -648,11 +649,13 @@ with tab_research:
         })
         grp_long["Absolute_change"] = grp_long["Post"] - grp_long["Baseline"]
 
+        # side-by-side bars per disease (not stacked)
         sub_chart = (
             alt.Chart(grp_long)
             .mark_bar()
             .encode(
                 x=alt.X("Subgroup:N", title=subgroup_var),
+                xOffset="Disease:N",
                 y=alt.Y("Absolute_change:Q", title="Change in mean risk"),
                 color=alt.Color("Disease:N", title="Disease"),
             )
