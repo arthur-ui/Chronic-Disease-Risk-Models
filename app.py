@@ -239,7 +239,7 @@ with tab_research:
 
     baseline_df = build_feature_df(
         bmi=bmi_r, age=age_r, waist=waist_r,
-        activity_label="Moderate",  # default; can extend later
+        activity_label="Moderate",  # default; can expose later
         smoker_label="No",
         sbp=sbp_r, dbp=dbp_r, hr=hr_r,
         income_ratio=income_ratio_r,
@@ -278,7 +278,6 @@ with tab_research:
     var_col, vmin, vmax, n_points = var_options[sens_label]
     vals = np.linspace(vmin, vmax, n_points)
 
-    # Build grid of inputs
     sens_X = pd.concat([baseline_df] * n_points, ignore_index=True)
     sens_X[var_col] = vals
 
@@ -308,18 +307,51 @@ with tab_research:
     st.markdown("---")
 
     # ============================================================
-    # 2. SBP × DBP heatmaps (all 3 diseases)
+    # 2. Two-variable heatmaps (user-chosen predictors)
     # ============================================================
-    st.subheader("SBP × DBP interaction heatmaps")
+    st.subheader("Two-variable interaction heatmaps")
 
-    sbp_vals = np.arange(90, 181, 5)
-    dbp_vals = np.arange(50, 111, 5)
-    SBP_grid, DBP_grid = np.meshgrid(sbp_vals, dbp_vals)
-    n_grid = SBP_grid.size
+    # Same continuous variables as above, but for 2D
+    two_d_var_options = {
+        "Age (years)": ("AgeYears", 20, 85),
+        "BMI (kg/m²)": ("bmi", 18, 45),
+        "Waist circumference (cm)": ("waist_circumference", 60, 140),
+        "Systolic BP (mmHg)": ("avg_systolic", 90, 180),
+        "Diastolic BP (mmHg)": ("avg_diastolic", 50, 110),
+        "Resting HR (bpm)": ("avg_HR", 50, 110),
+        "Income-to-poverty ratio": ("FamIncome_to_poverty_ratio", 0.3, 5.0),
+    }
+
+    colH1, colH2 = st.columns(2)
+    with colH1:
+        heat_x_label = st.selectbox(
+            "X-axis variable",
+            list(two_d_var_options.keys()),
+            index=3  # default SBP
+        )
+    with colH2:
+        # Ensure Y != X by filtering options
+        y_choices = [k for k in two_d_var_options.keys() if k != heat_x_label]
+        heat_y_label = st.selectbox(
+            "Y-axis variable",
+            y_choices,
+            index=1  # something sensible
+        )
+
+    (x_col, x_min, x_max) = two_d_var_options[heat_x_label]
+    (y_col, y_min, y_max) = two_d_var_options[heat_y_label]
+
+    n_x = st.slider("Resolution (X)", 10, 60, 25, key="nx_heat")
+    n_y = st.slider("Resolution (Y)", 10, 60, 25, key="ny_heat")
+
+    x_vals = np.linspace(x_min, x_max, n_x)
+    y_vals = np.linspace(y_min, y_max, n_y)
+    X_grid, Y_grid = np.meshgrid(x_vals, y_vals)
+    n_grid = X_grid.size
 
     grid_X = pd.concat([baseline_df] * n_grid, ignore_index=True)
-    grid_X["avg_systolic"] = SBP_grid.ravel()
-    grid_X["avg_diastolic"] = DBP_grid.ravel()
+    grid_X[x_col] = X_grid.ravel()
+    grid_X[y_col] = Y_grid.ravel()
 
     h_diab, h_ckd, h_cvd = predict_three(grid_X)
 
@@ -330,8 +362,8 @@ with tab_research:
     ):
         dfs.append(
             pd.DataFrame({
-                "SBP": SBP_grid.ravel(),
-                "DBP": DBP_grid.ravel(),
+                "X": X_grid.ravel(),
+                "Y": Y_grid.ravel(),
                 "Disease": disease,
                 "Risk": arr
             })
@@ -343,8 +375,8 @@ with tab_research:
         alt.Chart(heat_df)
         .mark_rect()
         .encode(
-            x=alt.X("SBP:O", title="Systolic BP (mmHg)"),
-            y=alt.Y("DBP:O", title="Diastolic BP (mmHg)"),
+            x=alt.X("X:Q", title=heat_x_label),
+            y=alt.Y("Y:Q", title=heat_y_label),
             color=alt.Color(
                 "Risk:Q",
                 title="Predicted risk",
@@ -355,148 +387,7 @@ with tab_research:
         .facet(column=alt.Column("Disease:N", title=None))
     )
     st.altair_chart(heat_chart, use_container_width=True)
-    st.caption("Shared color scale is set from 0 to the maximum risk observed across all three diseases.")
-
-    st.markdown("---")
-
-    # ============================================================
-    # 3. Pulse pressure & MAP heatmaps
-    # ============================================================
-    st.subheader("Pulse pressure and mean arterial pressure")
-
-    PP = SBP_grid - DBP_grid
-    MAP = (SBP_grid + 2 * DBP_grid) / 3.0
-
-    dfs_pp = []
-    for disease, arr in zip(
-        ["Diabetes", "CKD", "CVD"],
-        [h_diab, h_ckd, h_cvd]
-    ):
-        dfs_pp.append(
-            pd.DataFrame({
-                "Pulse pressure": PP.ravel(),
-                "MAP": MAP.ravel(),
-                "Disease": disease,
-                "Risk": arr
-            })
-        )
-    pp_df = pd.concat(dfs_pp, ignore_index=True)
-    max_risk_pp = float(pp_df["Risk"].max())
-
-    pp_chart = (
-        alt.Chart(pp_df)
-        .mark_rect()
-        .encode(
-            x=alt.X("Pulse pressure:O", title="Pulse pressure (mmHg)"),
-            y=alt.Y("MAP:O", title="Mean arterial pressure (mmHg)"),
-            color=alt.Color(
-                "Risk:Q",
-                title="Predicted risk",
-                scale=alt.Scale(domain=[0, max_risk_pp])
-            ),
-        )
-        .properties(width=220, height=220)
-        .facet(column=alt.Column("Disease:N", title=None))
+    st.caption(
+        "Heatmaps show predicted risk across a 2D grid of values for the selected predictors, "
+        "with all other variables fixed at the baseline profile."
     )
-    st.altair_chart(pp_chart, use_container_width=True)
-
-    st.markdown("---")
-
-    # ============================================================
-    # 4. BMI / weight-loss projection curves
-    # ============================================================
-    st.subheader("BMI / weight-change projections")
-
-    # Interpret baseline BMI as reference; vary +/- 10 units
-    bmi_min = max(15.0, bmi_r - 10)
-    bmi_max = min(60.0, bmi_r + 10)
-    bmi_range = np.linspace(bmi_min, bmi_max, 40)
-
-    bmi_X = pd.concat([baseline_df] * len(bmi_range), ignore_index=True)
-    bmi_X["bmi"] = bmi_range
-
-    w_diab, w_ckd, w_cvd = predict_three(bmi_X)
-    bmi_df = pd.DataFrame({
-        "BMI": bmi_range,
-        "Diabetes": w_diab,
-        "CKD": w_ckd,
-        "CVD": w_cvd
-    }).melt("BMI", var_name="Disease", value_name="Risk")
-
-    bmi_chart = (
-        alt.Chart(bmi_df)
-        .mark_line()
-        .encode(
-            x=alt.X("BMI:Q", title="BMI (kg/m²)"),
-            y=alt.Y("Risk:Q", title="Predicted risk"),
-            color=alt.Color("Disease:N", title=None)
-        )
-        .properties(height=300)
-    )
-    st.altair_chart(bmi_chart, use_container_width=True)
-    st.caption("Use this plot to visualise how weight loss or gain may change risk across diseases.")
-
-    st.markdown("---")
-
-    # ============================================================
-    # 5. Simple intervention simulator
-    # ============================================================
-    st.subheader("Intervention simulator (baseline vs modified profile)")
-
-    st.markdown("Specify changes from the baseline profile and compare risks before and after.")
-
-    colI1, colI2, colI3 = st.columns(3)
-    with colI1:
-        delta_bmi = st.number_input("Δ BMI (kg/m²)", -15.0, 15.0, -3.0, step=0.5)
-        delta_sbp = st.number_input("Δ systolic BP (mmHg)", -40, 40, -10)
-    with colI2:
-        delta_dbp = st.number_input("Δ diastolic BP (mmHg)", -30, 30, -5)
-        delta_hr  = st.number_input("Δ resting HR (bpm)", -40, 40, 0)
-    with colI3:
-        quit_smoking = st.checkbox("Smoking cessation (set smoker = No)", value=True)
-        increase_activity = st.checkbox("Increase activity to High", value=False)
-
-    if st.button("Simulate intervention", key="intervention_button"):
-        # Baseline prediction already computed
-        base_risks = np.array([base_diab[0], base_ckd[0], base_cvd[0]])
-
-        # Build modified profile
-        mod_df = baseline_df.copy()
-        mod_df["bmi"] = np.clip(bmi_r + delta_bmi, 15.0, 60.0)
-        mod_df["avg_systolic"] = np.clip(sbp_r + delta_sbp, 80, 220)
-        mod_df["avg_diastolic"] = np.clip(dbp_r + delta_dbp, 40, 140)
-        mod_df["avg_HR"] = np.clip(hr_r + delta_hr, 40, 140)
-
-        if quit_smoking:
-            mod_df["smoking"] = 0
-        if increase_activity:
-            mod_df["activity_level"] = activity_map["High"]
-
-        m_diab, m_ckd, m_cvd = predict_three(mod_df)
-        mod_risks = np.array([m_diab[0], m_ckd[0], m_cvd[0]])
-
-        sim_df = pd.DataFrame({
-            "Disease": ["Diabetes", "CKD", "CVD"],
-            "Risk type": ["Baseline"]*3 + ["After intervention"]*3,
-            "Risk": np.concatenate([base_risks, mod_risks])
-        })
-
-        sim_chart = (
-            alt.Chart(sim_df)
-            .mark_bar()
-            .encode(
-                x=alt.X("Disease:N", title=None),
-                y=alt.Y("Risk:Q", title="Predicted risk"),
-                color=alt.Color("Risk type:N", title=None),
-                column=alt.Column("Risk type:N", title=None)
-            )
-        )
-        st.altair_chart(sim_chart, use_container_width=True)
-
-        abs_diff = (base_risks - mod_risks) * 100
-        st.markdown(
-            f"Absolute risk reductions (percentage points): "
-            f"Diabetes **{abs_diff[0]:.1f}**; "
-            f"CKD **{abs_diff[1]:.1f}**; "
-            f"CVD **{abs_diff[2]:.1f}**."
-        )
