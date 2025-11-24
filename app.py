@@ -546,6 +546,23 @@ with tab_research:
 
         i_diab, i_ckd, i_cvd = predict_three(int_df)
 
+        # --- debug readouts so you can verify BP / smoking really change ---
+        if intervention == "Lower systolic BP":
+            st.write(
+                f"Mean SBP before: {base_df['avg_systolic'].mean():.1f}, "
+                f"after: {int_df['avg_systolic'].mean():.1f}"
+            )
+        elif intervention == "Lower diastolic BP":
+            st.write(
+                f"Mean DBP before: {base_df['avg_diastolic'].mean():.1f}, "
+                f"after: {int_df['avg_diastolic'].mean():.1f}"
+            )
+        elif intervention == "Set all smokers to non-smokers":
+            st.write(
+                f"Proportion smokers before: {base_df['smoking'].mean():.2f}, "
+                f"after: {int_df['smoking'].mean():.2f}"
+            )
+
         # ---------- overall summary ----------
         overall = pd.DataFrame({
             "Disease": ["Diabetes", "CKD", "CVD"],
@@ -570,50 +587,29 @@ with tab_research:
             use_container_width=True
         )
 
-        # ---------- NEW: baseline vs post scatter (3 panels) ----------
-        fig_scatter = make_subplots(
-            rows=1, cols=3,
-            subplot_titles=("Diabetes", "CKD", "CVD"),
-            shared_xaxes=False,
-            shared_yaxes=False,
-            horizontal_spacing=0.06
+        # ---------- NEW: % change bar chart instead of histogram ----------
+        fig_change = go.Figure()
+
+        fig_change.add_trace(
+            go.Bar(
+                x=overall["Disease"],
+                y=overall["Relative_change_%"],
+            )
         )
-
-        diseases = ["Diabetes", "CKD", "CVD"]
-        baseline_arrs = [b_diab, b_ckd, b_cvd]
-        post_arrs = [i_diab, i_ckd, i_cvd]
-
-        for idx, (dname, b_arr, p_arr) in enumerate(zip(diseases, baseline_arrs, post_arrs), start=1):
-            fig_scatter.add_trace(
-                go.Scatter(
-                    x=b_arr,
-                    y=p_arr,
-                    mode="markers",
-                    marker=dict(size=4, opacity=0.4),
-                    showlegend=False
-                ),
-                row=1, col=idx
-            )
-            # 45-degree reference line
-            min_val = min(b_arr.min(), p_arr.min())
-            max_val = max(b_arr.max(), p_arr.max())
-            fig_scatter.add_trace(
-                go.Scatter(
-                    x=[min_val, max_val],
-                    y=[min_val, max_val],
-                    mode="lines",
-                    line=dict(dash="dash"),
-                    showlegend=False
-                ),
-                row=1, col=idx
-            )
-            fig_scatter.update_xaxes(title_text="Baseline risk", row=1, col=idx)
-            fig_scatter.update_yaxes(title_text="Post-intervention risk", row=1, col=idx)
-
-        fig_scatter.update_layout(
+        fig_change.update_layout(
+            yaxis_title="Relative change in mean risk (%)",
+            xaxis_title="Disease",
             margin=dict(l=40, r=40, t=40, b=40),
+            shapes=[
+                dict(
+                    type="line",
+                    x0=-0.5, x1=2.5,
+                    y0=0, y1=0,
+                    line=dict(color="grey", dash="dash")
+                )
+            ]
         )
-        st.plotly_chart(fig_scatter, use_container_width=True)
+        st.plotly_chart(fig_change, use_container_width=True)
 
         # ---------- subgroup summary ----------
         st.markdown(f"**Subgroup effects by {subgroup_var}**")
@@ -638,13 +634,13 @@ with tab_research:
         })
         grp_long["Absolute_change"] = grp_long["Post"] - grp_long["Baseline"]
 
-        # grouped (side-by-side) bars using xOffset
+        # --- side-by-side (grouped) bars using xOffset ---
         sub_chart = (
             alt.Chart(grp_long)
             .mark_bar()
             .encode(
                 x=alt.X("Subgroup:N", title=subgroup_var),
-                xOffset="Disease:N",
+                xOffset=alt.XOffset("Disease:N"),
                 y=alt.Y("Absolute_change:Q", title="Change in mean risk"),
                 color=alt.Color("Disease:N", title="Disease"),
             )
