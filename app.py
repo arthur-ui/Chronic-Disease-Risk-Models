@@ -423,3 +423,262 @@ with tab_research:
         "Heatmaps show predicted risk across a 2D grid of values for the selected "
         "predictors, with all other variables fixed at the baseline profile."
     )
+    st.markdown("---")
+
+    # ============================================================
+    # 3. Population intervention simulator
+    # ============================================================
+    st.subheader("Population intervention simulator")
+
+    st.markdown(
+        "Simulate a synthetic population, apply a single intervention, and "
+        "compare predicted risk before and after the intervention overall and "
+        "across subgroups."
+    )
+
+    # ---- population size & random seed ----
+    colP1, colP2 = st.columns(2)
+    with colP1:
+        pop_n = st.slider("Population size", 500, 20000, 3000, step=500)
+    with colP2:
+        seed = st.number_input("Random seed", min_value=0, max_value=10_000, value=42)
+
+    rng = np.random.default_rng(seed)
+
+    # ---- intervention choice ----
+    intervention = st.selectbox(
+        "Choose intervention",
+        [
+            "Lower systolic BP",
+            "Lower diastolic BP",
+            "Reduce BMI",
+            "Reduce waist circumference",
+            "Increase income-to-poverty ratio",
+            "Set all smokers to non-smokers",
+        ],
+        index=0
+    )
+
+    # parameter for interventions that need a magnitude
+    delta_val = None
+    if intervention in [
+        "Lower systolic BP",
+        "Lower diastolic BP",
+        "Reduce BMI",
+        "Reduce waist circumference",
+        "Increase income-to-poverty ratio",
+    ]:
+        label = {
+            "Lower systolic BP": "SBP reduction (mmHg)",
+            "Lower diastolic BP": "DBP reduction (mmHg)",
+            "Reduce BMI": "BMI reduction (kg/m²)",
+            "Reduce waist circumference": "Waist reduction (cm)",
+            "Increase income-to-poverty ratio": "Increase in income-to-poverty ratio",
+        }[intervention]
+        default = {"Lower systolic BP": 10,
+                   "Lower diastolic BP": 5,
+                   "Reduce BMI": 2,
+                   "Reduce waist circumference": 5,
+                   "Increase income-to-poverty ratio": 0.5}[intervention]
+        max_val = 40 if "BP" in intervention else (10 if "BMI" in intervention else (30 if "Waist" in intervention else 5))
+        step = 1 if "BP" in intervention or "Waist" in intervention else 0.1
+        delta_val = st.slider(label, 0.0, float(max_val), float(default), step=step)
+
+    subgroup_var = st.selectbox(
+        "Subgroup to stratify by",
+        ["Gender", "Race", "Education"]
+    )
+
+    if st.button("Run population simulation"):
+        # ---------------------------------------------
+        # Generate synthetic population (baseline)
+        # ---------------------------------------------
+        # continuous variables ~ truncated normals / uniforms
+        age_pop = np.clip(rng.normal(loc=50, scale=15, size=pop_n), 18, 90)
+        bmi_pop = np.clip(rng.normal(loc=28, scale=5, size=pop_n), 18, 45)
+        waist_pop = np.clip(rng.normal(loc=100, scale=15, size=pop_n), 60, 150)
+        sbp_pop = np.clip(rng.normal(loc=130, scale=15, size=pop_n), 90, 200)
+        dbp_pop = np.clip(rng.normal(loc=80, scale=10, size=pop_n), 50, 120)
+        hr_pop  = np.clip(rng.normal(loc=72, scale=10, size=pop_n), 50, 110)
+        income_ratio_pop = np.clip(rng.lognormal(mean=np.log(2.0), sigma=0.5, size=pop_n), 0.3, 6.0)
+
+        # categorical variables via simple probabilities
+        gender_pop = rng.choice(["Male", "Female"], size=pop_n, p=[0.48, 0.52])
+        race_pop = rng.choice(
+            ["Non-Hispanic White", "Non-Hispanic Black", "Hispanic", "Other"],
+            size=pop_n,
+            p=[0.6, 0.15, 0.18, 0.07]
+        )
+        educ_keys = list(education_map.keys())
+        educ_pop = rng.choice(
+            educ_keys,
+            size=pop_n,
+            p=[0.05, 0.1, 0.25, 0.30, 0.30]
+        )
+        smoking_pop = rng.choice(["No", "Yes"], size=pop_n, p=[0.6, 0.4])
+        activity_pop = rng.choice(["Low", "Moderate", "High"], size=pop_n, p=[0.3, 0.5, 0.2])
+
+        base_df = pd.DataFrame({
+            "bmi": bmi_pop,
+            "AgeYears": age_pop,
+            "waist_circumference": waist_pop,
+            "activity_level": [activity_map[a] for a in activity_pop],
+            "smoking": [smoke_map[s] for s in smoking_pop],
+            "avg_systolic": sbp_pop,
+            "avg_diastolic": dbp_pop,
+            "avg_HR": hr_pop,
+            "FamIncome_to_poverty_ratio": income_ratio_pop,
+            "Education": [education_map[e] for e in educ_pop],
+            "Race": [race_map[r] for r in race_pop],
+            "Gender": [gender_map[g] for g in gender_pop],
+        })
+
+        # keep human-readable versions for grouping
+        base_df_human = pd.DataFrame({
+            "Gender": gender_pop,
+            "Race": race_pop,
+            "Education": educ_pop,
+        })
+
+        # baseline risks
+        b_diab, b_ckd, b_cvd = predict_three(base_df)
+
+        # ---------------------------------------------
+        # Apply intervention
+        # ---------------------------------------------
+        int_df = base_df.copy()
+
+        if intervention == "Lower systolic BP":
+            int_df["avg_systolic"] = np.clip(
+                int_df["avg_systolic"] - delta_val, 80, None
+            )
+        elif intervention == "Lower diastolic BP":
+            int_df["avg_diastolic"] = np.clip(
+                int_df["avg_diastolic"] - delta_val, 40, None
+            )
+        elif intervention == "Reduce BMI":
+            int_df["bmi"] = np.clip(int_df["bmi"] - delta_val, 15, None)
+        elif intervention == "Reduce waist circumference":
+            int_df["waist_circumference"] = np.clip(
+                int_df["waist_circumference"] - delta_val, 50, None
+            )
+        elif intervention == "Increase income-to-poverty ratio":
+            int_df["FamIncome_to_poverty_ratio"] = int_df["FamIncome_to_poverty_ratio"] + delta_val
+        elif intervention == "Set all smokers to non-smokers":
+            int_df["smoking"] = smoke_map["No"]
+
+        i_diab, i_ckd, i_cvd = predict_three(int_df)
+
+        # ---------------------------------------------
+        # Overall summary
+        # ---------------------------------------------
+        overall = pd.DataFrame({
+            "Disease": ["Diabetes", "CKD", "CVD"],
+            "Baseline_mean": [
+                float(b_diab.mean()), float(b_ckd.mean()), float(b_cvd.mean())
+            ],
+            "Post_mean": [
+                float(i_diab.mean()), float(i_ckd.mean()), float(i_cvd.mean())
+            ],
+        })
+        overall["Absolute_change"] = overall["Post_mean"] - overall["Baseline_mean"]
+        overall["Relative_change_%"] = 100 * overall["Absolute_change"] / overall["Baseline_mean"]
+
+        st.markdown("**Overall average predicted risk (baseline vs post-intervention)**")
+        st.dataframe(
+            overall.style.format({
+                "Baseline_mean": "{:.3f}",
+                "Post_mean": "{:.3f}",
+                "Absolute_change": "{:.3f}",
+                "Relative_change_%": "{:.1f}",
+            }),
+            use_container_width=True
+        )
+
+        # ---------------------------------------------
+        # Distributions: before vs after (all diseases)
+        # ---------------------------------------------
+        dist_df = pd.concat([
+            pd.DataFrame({
+                "Risk": b_diab, "Disease": "Diabetes", "Scenario": "Baseline"
+            }),
+            pd.DataFrame({
+                "Risk": i_diab, "Disease": "Diabetes", "Scenario": "Post-intervention"
+            }),
+            pd.DataFrame({
+                "Risk": b_ckd, "Disease": "CKD", "Scenario": "Baseline"
+            }),
+            pd.DataFrame({
+                "Risk": i_ckd, "Disease": "CKD", "Scenario": "Post-intervention"
+            }),
+            pd.DataFrame({
+                "Risk": b_cvd, "Disease": "CVD", "Scenario": "Baseline"
+            }),
+            pd.DataFrame({
+                "Risk": i_cvd, "Disease": "CVD", "Scenario": "Post-intervention"
+            }),
+        ], ignore_index=True)
+
+        dist_chart = (
+            alt.Chart(dist_df)
+            .transform_density(
+                "Risk",
+                groupby=["Disease", "Scenario"],
+                as_=["Risk", "density"],
+                extent=[0, float(dist_df["Risk"].max())]
+            )
+            .mark_area(opacity=0.4)
+            .encode(
+                x=alt.X("Risk:Q", title="Predicted risk"),
+                y=alt.Y("density:Q", title="Density"),
+                color=alt.Color("Scenario:N", title=None),
+            )
+            .facet(column=alt.Column("Disease:N", title=None))
+            .properties(height=200)
+        )
+
+        st.altair_chart(dist_chart, use_container_width=True)
+
+        # ---------------------------------------------
+        # Subgroup summary (Gender / Race / Education)
+        # ---------------------------------------------
+        st.markdown(f"**Subgroup effects by {subgroup_var}**")
+
+        # attach subgroup variable
+        subgroup_series = base_df_human[subgroup_var]
+        df_sub = pd.DataFrame({
+            "Subgroup": subgroup_series,
+            "b_diab": b_diab,
+            "b_ckd": b_ckd,
+            "b_cvd": b_cvd,
+            "i_diab": i_diab,
+            "i_ckd": i_ckd,
+            "i_cvd": i_cvd,
+        })
+
+        grp = df_sub.groupby("Subgroup", as_index=False).mean()
+        grp_long = pd.DataFrame({
+            "Subgroup": np.repeat(grp["Subgroup"].values, 3),
+            "Disease": ["Diabetes", "CKD", "CVD"] * len(grp),
+            "Baseline": np.concatenate([grp["b_diab"], grp["b_ckd"], grp["b_cvd"]]),
+            "Post": np.concatenate([grp["i_diab"], grp["i_ckd"], grp["i_cvd"]]),
+        })
+        grp_long["Absolute_change"] = grp_long["Post"] - grp_long["Baseline"]
+
+        sub_chart = (
+            alt.Chart(grp_long)
+            .mark_bar()
+            .encode(
+                x=alt.X("Subgroup:N", title=subgroup_var),
+                y=alt.Y("Absolute_change:Q", title="Change in mean risk"),
+                color=alt.Color("Disease:N", title="Disease"),
+            )
+            .properties(height=300)
+        )
+
+        st.altair_chart(sub_chart, use_container_width=True)
+
+        st.caption(
+            "Bars show the absolute change in mean modelled risk within each subgroup "
+            "after applying the selected intervention, relative to baseline."
+        )
