@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
-import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
 
 # ===========================
 # Load trained models (cached)
@@ -22,7 +23,7 @@ st.title("Non-Dietary Chronic Disease Risk Assessment Tool")
 st.caption("Research prototype based on NHANES 2011–2020. Not for clinical use.")
 
 # ============================================================
-#                    SHARED INPUTS (TOP)
+#               HEIGHT + WEIGHT INPUT (with unit choice)
 # ============================================================
 st.subheader("Anthropometrics")
 
@@ -54,7 +55,6 @@ st.write(f"**Calculated BMI:** {bmi:.1f} kg/m²")
 # ============================================================
 st.subheader("Socioeconomic Variables")
 
-# Federal poverty guidelines for 48 contiguous states & D.C.
 BASE_POVERTY_48 = {
     1: 15650,
     2: 21150,
@@ -75,18 +75,14 @@ with colF1:
 with colF2:
     household_size = st.selectbox("Household size", list(range(1, 13)), index=3)
 
-# Compute poverty threshold automatically (48 contiguous states)
 if household_size <= 8:
     poverty_threshold = BASE_POVERTY_48[household_size]
 else:
     poverty_threshold = BASE_POVERTY_48[8] + EXTRA_PER_PERSON_48 * (household_size - 8)
 
-st.write(
-    f"**Estimated poverty threshold (48 states, {household_size} people):** "
-    f"${poverty_threshold:,.0f}"
-)
+st.write(f"**Estimated poverty threshold:** ${poverty_threshold:,.0f}")
 
-income_ratio = family_income / poverty_threshold if poverty_threshold > 0 else 0
+income_ratio = family_income / poverty_threshold if poverty_threshold else 0
 st.write(f"**Income-to-poverty ratio:** {income_ratio:.2f}")
 
 # ============================================================
@@ -107,9 +103,7 @@ with col2:
     hr = st.number_input("Resting heart rate (bpm)", 40, 140, 70)
     activity = st.selectbox("Physical activity level", ["Low", "Moderate", "High"])
 
-# ============================================================
-#                      EDUCATION (NHANES)
-# ============================================================
+# Education
 education = st.selectbox(
     "Education level (NHANES categories)",
     [
@@ -117,8 +111,8 @@ education = st.selectbox(
         "9-11th grade (Includes 12th w/o diploma)",
         "High school graduate/GED or equivalent",
         "Some college or AA degree",
-        "College graduate or above",
-    ],
+        "College graduate or above"
+    ]
 )
 
 education_map = {
@@ -129,13 +123,10 @@ education_map = {
     "College graduate or above": 5,
 }
 
-# ============================================================
-#                      RACE & GENDER (NHANES)
-# ============================================================
 gender = st.selectbox("Gender", ["Male", "Female"])
 race = st.selectbox(
     "Race/ethnicity",
-    ["Non-Hispanic White", "Non-Hispanic Black", "Hispanic", "Other"],
+    ["Non-Hispanic White", "Non-Hispanic Black", "Hispanic", "Other"]
 )
 
 gender_map = {"Male": 1, "Female": 2}
@@ -143,15 +134,12 @@ race_map = {
     "Non-Hispanic White": 1,
     "Non-Hispanic Black": 2,
     "Hispanic": 3,
-    "Other": 4,
+    "Other": 4
 }
 
 smoke_map = {"No": 0, "Yes": 1}
 activity_map = {"Low": 0, "Moderate": 1, "High": 2}
 
-# ============================================================
-#              BUILD BASE FEATURE ROW (SHARED)
-# ============================================================
 base_row = {
     "bmi": bmi,
     "AgeYears": age,
@@ -174,184 +162,99 @@ X_base = pd.DataFrame([base_row])
 tab1, tab2 = st.tabs(["Individual risk tool", "Researcher tools"])
 
 # ============================================================
-#                    TAB 1: INDIVIDUAL TOOL
+#                    TAB 1
 # ============================================================
 with tab1:
     st.subheader("Individual Multi-Disease Risk Estimate")
 
     if st.button("Estimate risks"):
-        p_diab = float(pipe_diab.predict_proba(X_base)[0, 1])
-        p_ckd  = float(pipe_ckd.predict_proba(X_base)[0, 1])
-        p_cvd  = float(pipe_cvd.predict_proba(X_base)[0, 1])
+        p_diab = pipe_diab.predict_proba(X_base)[0, 1]
+        p_ckd  = pipe_ckd.predict_proba(X_base)[0, 1]
+        p_cvd  = pipe_cvd.predict_proba(X_base)[0, 1]
 
-        r1, r2, r3 = st.columns(3)
-        r1.metric("Diabetes Risk", f"{p_diab*100:.1f}%")
-        r2.metric("CKD Risk", f"{p_ckd*100:.1f}%")
-        r3.metric("CVD Risk", f"{p_cvd*100:.1f}%")
-
-        st.caption(
-            "These estimates are based solely on non-dietary predictors "
-            "(anthropometrics, vital signs, sociodemographics)."
-        )
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Diabetes Risk", f"{p_diab*100:.1f}%")
+        c2.metric("CKD Risk", f"{p_ckd*100:.1f}%")
+        c3.metric("CVD Risk", f"{p_cvd*100:.1f}%")
 
 # ============================================================
-#                 TAB 2: RESEARCHER TOOLS
+#                    TAB 2
 # ============================================================
 with tab2:
-    st.subheader("Researcher tools: sensitivity analysis and risk surfaces")
-    st.markdown(
-        "Use these tools to explore how risk changes as you vary model inputs, "
-        "holding other factors constant at the values above."
+
+    st.subheader("Univariate Sensitivity Analysis")
+
+    disease_uni = st.selectbox("Disease", ["Diabetes", "CKD", "CVD"])
+    feature_uni = st.selectbox(
+        "Feature to vary",
+        ["AgeYears","bmi","waist_circumference","avg_systolic",
+         "avg_diastolic","avg_HR","FamIncome_to_poverty_ratio"]
     )
 
-    # --- helper: choose model by disease name ---
-    def get_model(disease: str):
-        if disease == "Diabetes":
-            return pipe_diab
-        elif disease == "CKD":
-            return pipe_ckd
-        elif disease == "CVD":
-            return pipe_cvd
-        else:
-            raise ValueError("Unknown disease")
-
-    # -------------------------------------------
-    #   2.1 Univariate sensitivity curves
-    # -------------------------------------------
-    st.markdown("### Univariate sensitivity (one variable at a time)")
-
-    colu1, colu2 = st.columns(2)
-    with colu1:
-        disease_uni = st.selectbox(
-            "Disease (for univariate curve)",
-            ["Diabetes", "CKD", "CVD"],
-            index=0,
-        )
-    with colu2:
-        feature_uni = st.selectbox(
-            "Feature to vary",
-            [
-                "AgeYears",
-                "bmi",
-                "waist_circumference",
-                "avg_systolic",
-                "avg_diastolic",
-                "avg_HR",
-                "FamIncome_to_poverty_ratio",
-            ],
-        )
-
-    # sensible ranges for features
-    feature_ranges = {
+    ranges = {
         "AgeYears": (18, 90),
         "bmi": (15, 50),
         "waist_circumference": (60, 150),
         "avg_systolic": (90, 180),
         "avg_diastolic": (50, 110),
         "avg_HR": (40, 120),
-        "FamIncome_to_poverty_ratio": (0.2, 5.0),
+        "FamIncome_to_poverty_ratio": (0.2, 5),
     }
+    fmin, fmax = ranges[feature_uni]
 
-    f_min, f_max = feature_ranges[feature_uni]
-    n_points = st.slider("Number of points in curve", 30, 200, 80)
+    n_points = st.slider("Resolution", 30, 200, 100)
 
-    if st.button("Plot univariate sensitivity"):
-        model = get_model(disease_uni)
+    if st.button("Plot sensitivity"):
+        vals = np.linspace(fmin, fmax, n_points)
+        Xgrid = pd.concat([X_base]*n_points, ignore_index=True)
+        Xgrid[feature_uni] = vals
 
-        values = np.linspace(f_min, f_max, n_points)
-        X_grid = pd.concat([X_base] * n_points, ignore_index=True)
-        X_grid[feature_uni] = values
+        model = {"Diabetes":pipe_diab,"CKD":pipe_ckd,"CVD":pipe_cvd}[disease_uni]
+        probs = model.predict_proba(Xgrid)[:,1]
 
-        probs = model.predict_proba(X_grid)[:, 1]
-
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax.plot(values, probs, linewidth=2.5)
-        ax.set_xlabel(feature_uni, fontsize=12)
-        ax.set_ylabel(f"Predicted risk of {disease_uni}", fontsize=12)
-        ax.set_title(
-            f"{disease_uni} risk vs {feature_uni} "
-            "(all other predictors held constant)",
-            fontsize=12,
-        )
-        ax.grid(True, linestyle=":", alpha=0.4)
-        st.pyplot(fig)
+        fig = px.line(x=vals, y=probs,
+                      labels={"x":feature_uni, "y":f"{disease_uni} risk"},
+                      title=f"Risk vs {feature_uni}")
+        st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("---")
+    st.subheader("2D Risk Surface (Heatmap)")
 
-    # -------------------------------------------
-    #   2.2 Bivariate heatmaps (2D risk surfaces)
-    # -------------------------------------------
-    st.markdown("### Bivariate risk surfaces (heatmaps)")
-
-    colh1, colh2, colh3 = st.columns(3)
-    with colh1:
-        disease_heat = st.selectbox(
-            "Disease (for heatmap)",
-            ["Diabetes", "CKD", "CVD"],
-            index=0,
-        )
-    with colh2:
-        x_feature = st.selectbox(
-            "X-axis feature",
-            ["AgeYears", "bmi", "avg_systolic", "waist_circumference"],
-            index=0,
-        )
-    with colh3:
-        y_feature = st.selectbox(
-            "Y-axis feature",
-            ["bmi", "avg_systolic", "avg_diastolic", "FamIncome_to_poverty_ratio"],
-            index=1,
-        )
+    disease_heat = st.selectbox("Disease (heatmap)", ["Diabetes","CKD","CVD"])
+    x_feature = st.selectbox("X-axis feature", list(ranges.keys()), index=0)
+    y_feature = st.selectbox("Y-axis feature", list(ranges.keys()), index=1)
 
     if x_feature == y_feature:
-        st.warning("Please choose two different features for X and Y.")
+        st.warning("Choose two different features.")
     else:
-        x_min, x_max = feature_ranges.get(x_feature, (0, 1))
-        y_min, y_max = feature_ranges.get(y_feature, (0, 1))
+        nx = st.slider("X resolution", 20, 100, 40)
+        ny = st.slider("Y resolution", 20, 100, 40)
 
-        nx = st.slider("Number of X points", 20, 100, 40, key="nx")
-        ny = st.slider("Number of Y points", 20, 100, 40, key="ny")
+        if st.button("Plot heatmap"):
+            xv = np.linspace(*ranges[x_feature], nx)
+            yv = np.linspace(*ranges[y_feature], ny)
 
-        if st.button("Plot 2D risk surface"):
-            model = get_model(disease_heat)
-
-            x_vals = np.linspace(x_min, x_max, nx)
-            y_vals = np.linspace(y_min, y_max, ny)
-
-            # build full grid at once
-            grid_rows = []
-            for xv in x_vals:
-                for yv in y_vals:
+            grid = []
+            for a in xv:
+                for b in yv:
                     row = base_row.copy()
-                    row[x_feature] = xv
-                    row[y_feature] = yv
-                    grid_rows.append(row)
+                    row[x_feature] = a
+                    row[y_feature] = b
+                    grid.append(row)
 
-            X_grid2 = pd.DataFrame(grid_rows)
-            probs2 = model.predict_proba(X_grid2)[:, 1]
-            Z = probs2.reshape(nx, ny)
+            X2 = pd.DataFrame(grid)
+            model = {"Diabetes":pipe_diab,"CKD":pipe_ckd,"CVD":pipe_cvd}[disease_heat]
+            Z = model.predict_proba(X2)[:,1].reshape(nx, ny)
 
-            fig2, ax2 = plt.subplots(figsize=(6, 5))
-            im = ax2.imshow(
-                Z,
-                origin="lower",
-                aspect="auto",
-                extent=[y_min, y_max, x_min, x_max],
+            fig2 = go.Figure(data=go.Heatmap(
+                z=Z,
+                x=yv,
+                y=xv,
+                colorscale="Viridis"
+            ))
+            fig2.update_layout(
+                title=f"{disease_heat} Risk Surface",
+                xaxis_title=y_feature,
+                yaxis_title=x_feature
             )
-            cbar = fig2.colorbar(im, ax=ax2)
-            cbar.set_label(f"Predicted {disease_heat} risk", fontsize=11)
-
-            ax2.set_xlabel(y_feature, fontsize=12)
-            ax2.set_ylabel(x_feature, fontsize=12)
-            ax2.set_title(
-                f"{disease_heat} risk surface: {x_feature} vs {y_feature}", fontsize=12
-            )
-            st.pyplot(fig2)
-
-# ===========================
-# Footer
-# ===========================
-st.markdown("---")
-st.markdown("**Model info**")
-st.markdown("- Bagged decision trees with preprocessing pipeline")
-st.markdown("- Inputs mirror NHANES preprocessing pipeline")
+            st.plotly_chart(fig2, use_container_width=True)
