@@ -255,8 +255,8 @@ with tab_research:
 
     base_diab, base_ckd, base_cvd = predict_three(baseline_df)
     st.markdown(
-        f"Baseline predicted risks – Diabetes: **{base_diab[0]*100:.1f}%**, "
-        f"CKD: **{base_ckd[0]*100:.1f}%**, CVD: **{base_cvd[0]*100:.1f}%**."
+        f"Baseline predicted risks – Diabetes: **{base_diab[0]*100:.2f}%**, "
+        f"CKD: **{base_ckd[0]*100:.2f}%**, CVD: **{base_cvd[0]*100:.2f}%**."
     )
 
     st.markdown("---")
@@ -546,21 +546,21 @@ with tab_research:
 
         i_diab, i_ckd, i_cvd = predict_three(int_df)
 
-        # --- debug readouts so you can verify BP / smoking really change ---
+        # --- debug readouts for BP / smoking interventions ---
         if intervention == "Lower systolic BP":
             st.write(
-                f"Mean SBP before: {base_df['avg_systolic'].mean():.1f}, "
-                f"after: {int_df['avg_systolic'].mean():.1f}"
+                f"Mean SBP before: {base_df['avg_systolic'].mean():.2f}, "
+                f"after: {int_df['avg_systolic'].mean():.2f}"
             )
         elif intervention == "Lower diastolic BP":
             st.write(
-                f"Mean DBP before: {base_df['avg_diastolic'].mean():.1f}, "
-                f"after: {int_df['avg_diastolic'].mean():.1f}"
+                f"Mean DBP before: {base_df['avg_diastolic'].mean():.2f}, "
+                f"after: {int_df['avg_diastolic'].mean():.2f}"
             )
         elif intervention == "Set all smokers to non-smokers":
             st.write(
-                f"Proportion smokers before: {base_df['smoking'].mean():.2f}, "
-                f"after: {int_df['smoking'].mean():.2f}"
+                f"Proportion smokers before: {base_df['smoking'].mean():.3f}, "
+                f"after: {int_df['smoking'].mean():.3f}"
             )
 
         # ---------- overall summary ----------
@@ -574,22 +574,25 @@ with tab_research:
             ],
         })
         overall["Absolute_change"] = overall["Post_mean"] - overall["Baseline_mean"]
-        overall["Relative_change_%"] = 100 * overall["Absolute_change"] / overall["Baseline_mean"]
+        overall["Relative_change_%"] = np.where(
+            overall["Baseline_mean"] > 0,
+            100 * overall["Absolute_change"] / overall["Baseline_mean"],
+            np.nan
+        )
 
         st.markdown("**Overall average predicted risk (baseline vs post-intervention)**")
         st.dataframe(
             overall.style.format({
-                "Baseline_mean": "{:.3f}",
-                "Post_mean": "{:.3f}",
-                "Absolute_change": "{:.3f}",
-                "Relative_change_%": "{:.1f}",
+                "Baseline_mean": "{:.5f}",
+                "Post_mean": "{:.5f}",
+                "Absolute_change": "{:.5f}",
+                "Relative_change_%": "{:.2f}",
             }),
             use_container_width=True
         )
 
-        # ---------- NEW: % change bar chart instead of histogram ----------
+        # ---------- % change bar chart (replaces histogram) ----------
         fig_change = go.Figure()
-
         fig_change.add_trace(
             go.Bar(
                 x=overall["Disease"],
@@ -611,7 +614,7 @@ with tab_research:
         )
         st.plotly_chart(fig_change, use_container_width=True)
 
-        # ---------- subgroup summary ----------
+        # ---------- subgroup summary (side-by-side bars) ----------
         st.markdown(f"**Subgroup effects by {subgroup_var}**")
 
         subgroup_series = base_df_human[subgroup_var]
@@ -634,20 +637,26 @@ with tab_research:
         })
         grp_long["Absolute_change"] = grp_long["Post"] - grp_long["Baseline"]
 
-        # --- side-by-side (grouped) bars using xOffset ---
-        sub_chart = (
-            alt.Chart(grp_long)
-            .mark_bar()
-            .encode(
-                x=alt.X("Subgroup:N", title=subgroup_var),
-                xOffset=alt.XOffset("Disease:N"),
-                y=alt.Y("Absolute_change:Q", title="Change in mean risk"),
-                color=alt.Color("Disease:N", title="Disease"),
+        # Plotly grouped bar chart: one cluster per subgroup, 3 bars (diseases)
+        fig_sub = go.Figure()
+        for disease in ["Diabetes", "CKD", "CVD"]:
+            mask = grp_long["Disease"] == disease
+            fig_sub.add_trace(
+                go.Bar(
+                    x=grp_long.loc[mask, "Subgroup"],
+                    y=grp_long.loc[mask, "Absolute_change"],
+                    name=disease
+                )
             )
-            .properties(height=300)
+
+        fig_sub.update_layout(
+            barmode="group",
+            xaxis_title=subgroup_var,
+            yaxis_title="Change in mean risk (post - baseline)",
+            margin=dict(l=40, r=40, t=40, b=40)
         )
 
-        st.altair_chart(sub_chart, use_container_width=True)
+        st.plotly_chart(fig_sub, use_container_width=True)
 
         st.caption(
             "Bars show the absolute change in mean modelled risk within each subgroup "
