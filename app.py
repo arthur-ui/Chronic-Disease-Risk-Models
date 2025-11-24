@@ -580,25 +580,24 @@ with tab_research:
             pd.DataFrame({"Risk": i_cvd, "Disease": "CVD", "Scenario": "Post-intervention"}),
         ], ignore_index=True)
 
-        dist_chart = (
+        # FIXED: Histogram-based distribution comparison (no transform_density)
+        hist_chart = (
             alt.Chart(dist_df)
-            .transform_density(
-                "Risk",
-                groupby=["Disease", "Scenario"],
-                as_=["Risk", "density"],
-                extent=[0, float(dist_df["Risk"].max())]
-            )
-            .mark_area(opacity=0.4)
+            .mark_area(opacity=0.45)
             .encode(
-                x=alt.X("Risk:Q", title="Predicted risk"),
-                y=alt.Y("density:Q", title="Density"),
-                color=alt.Color("Scenario:N", title=None),
+                x=alt.X("Risk:Q", bin=alt.Bin(maxbins=40), title="Predicted risk"),
+                y=alt.Y("count()", stack=None, title="Count"),
+                color=alt.Color("Scenario:N", title=None)
             )
-            .facet(column=alt.Column("Disease:N", title=None))
-            .properties(height=200)
+            .facet(
+                column=alt.Column("Disease:N", title=None)
+            )
+            .properties(height=220)
         )
 
-        st.altair_chart(dist_chart, use_container_width=True)
+        st.altair_chart(hist_chart, use_container_width=True)
+
+        
 
         # ---------- subgroup summary ----------
         st.markdown(f"**Subgroup effects by {subgroup_var}**")
