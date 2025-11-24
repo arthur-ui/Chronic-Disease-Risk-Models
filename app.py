@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import joblib
 import altair as alt
+import matplotlib.pyplot as plt
 
 # ===========================
 # Load trained models
@@ -243,7 +244,7 @@ with tab_research:
 
     baseline_df = build_feature_df(
         bmi=bmi_r, age=age_r, waist=waist_r,
-        activity_label="Moderate",  # default; can expose later if desired
+        activity_label="Moderate",  # default; can expose later
         smoker_label="No",
         sbp=sbp_r, dbp=dbp_r, hr=hr_r,
         income_ratio=income_ratio_r,
@@ -314,11 +315,10 @@ with tab_research:
     st.markdown("---")
 
     # ============================================================
-    # 2. Two-variable heatmaps (user-chosen predictors)
+    # 2. Two-variable interaction heatmaps (user-chosen predictors)
     # ============================================================
     st.subheader("Two-variable interaction heatmaps")
 
-    # Same continuous variables as above, but for 2D
     two_d_var_options = {
         "Age (years)": ("AgeYears", 20, 85),
         "BMI (kg/m²)": ("bmi", 18, 45),
@@ -337,7 +337,6 @@ with tab_research:
             index=3  # default SBP
         )
     with colH2:
-        # Ensure Y != X by filtering options
         y_choices = [k for k in two_d_var_options.keys() if k != heat_x_label]
         heat_y_label = st.selectbox(
             "Y-axis variable",
@@ -353,49 +352,48 @@ with tab_research:
 
     x_vals = np.linspace(x_min, x_max, n_x)
     y_vals = np.linspace(y_min, y_max, n_y)
-    X_grid, Y_grid = np.meshgrid(x_vals, y_vals)
+    X_grid, Y_grid = np.meshgrid(x_vals, y_vals)  # shape (n_y, n_x)
     n_grid = X_grid.size
 
-    # Build grid DataFrame by copying baseline row and overwriting the two variables
     grid_X = pd.concat([baseline_df] * n_grid, ignore_index=True)
     grid_X[x_col] = X_grid.ravel()
     grid_X[y_col] = Y_grid.ravel()
 
     h_diab, h_ckd, h_cvd = predict_three(grid_X)
 
-    dfs = []
-    for disease, arr in zip(
-        ["Diabetes", "CKD", "CVD"],
-        [h_diab, h_ckd, h_cvd]
-    ):
-        dfs.append(
-            pd.DataFrame({
-                "X": X_grid.ravel(),
-                "Y": Y_grid.ravel(),
-                "Disease": disease,
-                "Risk": arr
-            })
-        )
-    heat_df = pd.concat(dfs, ignore_index=True)
-    max_risk = float(heat_df["Risk"].max())
+    # reshape for imshow
+    Z_diab = h_diab.reshape(n_y, n_x)
+    Z_ckd  = h_ckd.reshape(n_y, n_x)
+    Z_cvd  = h_cvd.reshape(n_y, n_x)
 
-    heat_chart = (
-        alt.Chart(heat_df)
-        .mark_rect()
-        .encode(
-            x=alt.X("X:Q", title=heat_x_label),
-            y=alt.Y("Y:Q", title=heat_y_label),
-            color=alt.Color(
-                "Risk:Q",
-                title="Predicted risk",
-                scale=alt.Scale(domain=[0, max_risk])
-            ),
-        )
-        .properties(width=220, height=220)
-        .facet(column=alt.Column("Disease:N", title=None))
+    max_risk = float(
+        np.max([Z_diab.max(), Z_ckd.max(), Z_cvd.max()])
     )
 
-    st.altair_chart(heat_chart, use_container_width=True)
+    fig, axes = plt.subplots(1, 3, figsize=(12, 4), sharex=True, sharey=True)
+
+    for ax, Z, title in zip(
+        axes,
+        [Z_ckd, Z_cvd, Z_diab],  # order to match your earlier figures if you like
+        ["CKD", "CVD", "Diabetes"]
+    ):
+        im = ax.imshow(
+            Z,
+            origin="lower",
+            extent=[x_min, x_max, y_min, y_max],
+            aspect="auto",
+            vmin=0.0,
+            vmax=max_risk,
+            cmap="viridis",
+        )
+        ax.set_title(title)
+        ax.set_xlabel(heat_x_label)
+    axes[0].set_ylabel(heat_y_label)
+
+    cbar = fig.colorbar(im, ax=axes.ravel().tolist())
+    cbar.set_label("Predicted risk")
+
+    st.pyplot(fig)
     st.caption(
         "Heatmaps show predicted risk across a 2D grid of values for the selected "
         "predictors, with all other variables fixed at the baseline profile."
