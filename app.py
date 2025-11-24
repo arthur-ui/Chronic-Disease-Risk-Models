@@ -583,7 +583,7 @@ with tab_research:
         fig_dist = make_subplots(
             rows=1, cols=3,
             subplot_titles=("Diabetes", "CKD", "CVD"),
-            shared_y=True,
+            shared_yaxes=True,
             horizontal_spacing=0.06
         )
 
