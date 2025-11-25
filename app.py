@@ -200,8 +200,7 @@ def prepare_for_model(df: pd.DataFrame) -> pd.DataFrame:
 
     Categorical predictors (Gender, Race, Education, smoking) are left
     as their NHANES integer codes with NaNs; the model pipeline will
-    impute their modes internally (SimpleImputer(strategy="most_frequent")
-    inside the joblib).
+    impute their modes internally.
     """
     df = df.copy()
 
@@ -349,9 +348,6 @@ with tab_research:
         "diabetes, CKD, and CVD. All calculations use the same non-laboratory "
         "models as the main risk calculator."
     )
-
-    # Optional: debug toggle for printed output
-    debug_mode = st.checkbox("Enable debug output (shows internal tables)", value=False)
 
     # ---------------- Baseline profile for 1D/2D tools ----------------
     st.subheader("Baseline profile (held constant for sensitivity analyses)")
@@ -675,9 +671,6 @@ with tab_research:
 
                 pop_df[col] = col_numeric
 
-            if debug_mode:
-                st.write("DEBUG: pop_df head", pop_df.head())
-
             # ----- build baseline feature matrix from raw pop_df -----
             base_X = prepare_for_model(pop_df)
             b_diab, b_ckd, b_cvd = predict_three(base_X)
@@ -697,11 +690,6 @@ with tab_research:
 
             scen_X = prepare_for_model(scenario_df)
             i_diab, i_ckd, i_cvd = predict_three(scen_X)
-
-            if debug_mode:
-                st.write("DEBUG: scenario_df head", scenario_df.head())
-                st.write("DEBUG: cat_overrides", cat_overrides)
-                st.write("DEBUG: numeric_deltas", numeric_deltas)
 
             # ---------- overall summary ----------
             overall = pd.DataFrame({
@@ -754,51 +742,46 @@ with tab_research:
             )
             st.plotly_chart(fig_change, use_container_width=True)
 
-            # ---------- subgroup summary ----------
-            st.markdown(f"**Subgroup effects by {strat_option}**")
+            # ---------- subgroup summary (stacked contributions) ----------
+            st.markdown(f"**Subgroup contributions to overall change – grouped by {strat_option}**")
 
-            # Decide which dataframe to use for subgroup labels:
-            # - If stratifying on a variable we changed, use scenario_df
-            # - Otherwise, use pop_df (baseline codes)
-            if strat_option in cat_overrides or strat_option in numeric_deltas:
-                subgroup_source = scenario_df
-            else:
-                subgroup_source = pop_df
-
-            # build subgroup labels
+            # build subgroup labels from *baseline* raw codes in pop_df
             if strat_option == "AgeYears (binned)":
-                subgroup_series = pd.cut(
-                    subgroup_source["AgeYears"],
-                    bins=[0, 40, 60, 200],
-                    labels=["<40", "40–59", "≥60"]
-                )
-
+                if "AgeYears" in pop_df.columns:
+                    subgroup_series = pd.cut(
+                        pop_df["AgeYears"],
+                        bins=[0, 40, 60, 200],
+                        labels=["<40", "40–59", "≥60"]
+                    )
+                else:
+                    subgroup_series = pd.Series(["All"] * pop_df.shape[0])
             elif strat_option == "bmi (binned)":
-                subgroup_series = pd.cut(
-                    subgroup_source["bmi"],
-                    bins=[0, 25, 30, 100],
-                    labels=["<25", "25–29.9", "≥30"]
-                )
-
+                if "bmi" in pop_df.columns:
+                    subgroup_series = pd.cut(
+                        pop_df["bmi"],
+                        bins=[0, 25, 30, 100],
+                        labels=["<25", "25–29.9", "≥30"]
+                    )
+                else:
+                    subgroup_series = pd.Series(["All"] * pop_df.shape[0])
             else:
                 col_name = strat_option
-                codes = subgroup_source[col_name]
-
-                if col_name == "Gender":
-                    subgroup_series = codes.map(gender_inv_map).fillna("Unknown")
-                elif col_name == "Race":
-                    subgroup_series = codes.map(race_inv_map).fillna("Unknown")
-                elif col_name == "Education":
-                    subgroup_series = codes.map(education_inv_map).fillna("Unknown")
-                elif col_name == "smoking":
-                    subgroup_series = codes.map(smoke_inv_map).fillna("Unknown")
-                elif col_name == "activity_level":
-                    subgroup_series = codes.map(activity_inv_map).fillna("Unknown")
+                if col_name not in pop_df.columns:
+                    subgroup_series = pd.Series(["All"] * pop_df.shape[0])
                 else:
-                    subgroup_series = codes.astype(str)
-
-            if debug_mode:
-                st.write("DEBUG: subgroup value counts", subgroup_series.value_counts(dropna=False))
+                    codes = pop_df[col_name]
+                    if col_name == "Gender":
+                        subgroup_series = codes.map(gender_inv_map).fillna("Unknown")
+                    elif col_name == "Race":
+                        subgroup_series = codes.map(race_inv_map).fillna("Unknown")
+                    elif col_name == "Education":
+                        subgroup_series = codes.map(education_inv_map).fillna("Unknown")
+                    elif col_name == "smoking":
+                        subgroup_series = codes.map(smoke_inv_map).fillna("Unknown")
+                    elif col_name == "activity_level":
+                        subgroup_series = codes.map(activity_inv_map).fillna("Unknown")
+                    else:
+                        subgroup_series = codes.astype(str)
 
             df_sub = pd.DataFrame({
                 "Subgroup": subgroup_series,
@@ -810,38 +793,54 @@ with tab_research:
                 "i_cvd": i_cvd,
             })
 
-            grp = df_sub.groupby("Subgroup", as_index=False).mean(numeric_only=True)
+            # mean baseline/scenario per subgroup + counts
+            grp_means = df_sub.groupby("Subgroup").mean(numeric_only=True)
+            grp_counts = df_sub.groupby("Subgroup").size().rename("n")
+            grp = grp_means.join(grp_counts)
+            grp = grp.reset_index()  # Subgroup column
+
+            # long format with contributions
             grp_long = pd.DataFrame({
                 "Subgroup": np.repeat(grp["Subgroup"].values, 3),
                 "Disease": ["Diabetes", "CKD", "CVD"] * len(grp),
                 "Baseline": np.concatenate([grp["b_diab"], grp["b_ckd"], grp["b_cvd"]]),
                 "Scenario": np.concatenate([grp["i_diab"], grp["i_ckd"], grp["i_cvd"]]),
+                "n": np.repeat(grp["n"].values, 3),
             })
             grp_long["Absolute_change"] = grp_long["Scenario"] - grp_long["Baseline"]
 
+            N_total = grp["n"].sum()
+            grp_long["Contribution"] = grp_long["Absolute_change"] * (grp_long["n"] / N_total)
+
+            # stacked bar: x = Disease, y = contribution, color = Subgroup
             fig_sub = go.Figure()
-            for disease in ["Diabetes", "CKD", "CVD"]:
-                mask = grp_long["Disease"] == disease
+            for subgroup in grp["Subgroup"].astype(str).unique():
+                mask = grp_long["Subgroup"].astype(str) == subgroup
                 fig_sub.add_trace(
                     go.Bar(
-                        x=grp_long.loc[mask, "Subgroup"].astype(str),
-                        y=grp_long.loc[mask, "Absolute_change"],
-                        name=disease
+                        x=grp_long.loc[mask, "Disease"],
+                        y=grp_long.loc[mask, "Contribution"],
+                        name=str(subgroup)
                     )
                 )
 
             fig_sub.update_layout(
-                barmode="group",
-                xaxis_title=strat_option,
-                yaxis_title="Change in mean risk (scenario - baseline)",
+                barmode="stack",
+                xaxis_title="Disease",
+                yaxis_title="Change in mean risk (stacked subgroup contributions)",
                 margin=dict(l=40, r=40, t=80, b=80),
-                legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5)
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom", y=-0.3,
+                    xanchor="center", x=0.5
+                )
             )
 
             st.plotly_chart(fig_sub, use_container_width=True)
 
             st.caption(
-                "Bars show the absolute change in mean modelled risk within each subgroup "
-                "after applying the chosen scenario, relative to baseline."
+                "Each bar shows how different subgroups (stacked colors) contribute to the "
+                "overall change in mean modelled risk for that disease. "
+                "For each disease, the total bar height matches the overall change above."
             )
 
