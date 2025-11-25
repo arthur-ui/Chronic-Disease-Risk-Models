@@ -929,7 +929,10 @@ with tab_research:
             st.plotly_chart(fig_sub, use_container_width=True)
 
             st.caption(
-                f"Bars show how each subgroup contributes to the overall relative (%) change "
-                f"in mean modelled risk for {disease_choice}. The sum of the subgroup effects "
-                f(is) "consistent with the overall relative change shown above (up to sampling error)."
+                (
+                    "Bars show how each subgroup contributes to the overall relative (%) change "
+                    "in mean modelled risk for {disease_choice}. The sum of the subgroup effects "
+                    "(is) consistent with the overall relative change shown above (up to sampling error)."
+                ).format(disease_choice=disease_choice)
             )
+
