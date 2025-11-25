@@ -110,6 +110,9 @@ def predict_three(X: pd.DataFrame):
 # -------------------------------------------------
 # Load NHANES test set for simulation (real rows)
 # -------------------------------------------------
+# -------------------------------------------------
+# Load NHANES test set for simulation (real rows)
+# -------------------------------------------------
 try:
     nhanes_sim = pd.read_csv("nhanes_test_for_sim.csv")
     HAVE_NHANES_SIM = True
@@ -118,10 +121,91 @@ except Exception:
     HAVE_NHANES_SIM = False
 
 if HAVE_NHANES_SIM:
-    # 1) Force all model feature columns to numeric (turn " " / "" / weird into NaN)
+    # --- 0. Basic strip of whitespace in column names ---
+    nhanes_sim.columns = nhanes_sim.columns.str.strip()
+
+    # --- 1. Recode Race (original RIDRETH3) -> 4-category scheme used in model ---
+    # RIDRETH3: 1 = Mexican American
+    #           2 = Other Hispanic
+    #           3 = Non-Hispanic White
+    #           4 = Non-Hispanic Black
+    #           6 = Non-Hispanic Asian
+    #           7 = Other / Multi
+    if "Race" in nhanes_sim.columns:
+        race_raw = pd.to_numeric(nhanes_sim["Race"], errors="coerce").astype("Int64")
+        race_recode = pd.Series(np.nan, index=nhanes_sim.index, dtype="float")
+
+        # 1 = Non-Hispanic White
+        race_recode[race_raw == 3] = 1
+        # 2 = Non-Hispanic Black
+        race_recode[race_raw == 4] = 2
+        # 3 = Hispanic (Mexican American + Other Hispanic)
+        race_recode[race_raw.isin([1, 2])] = 3
+        # 4 = Other (Asian + Other/Multi)
+        race_recode[race_raw.isin([6, 7])] = 4
+
+        nhanes_sim["Race"] = race_recode
+
+    # --- 2. Recode smoking to match model (0 = No, 1 = Yes) ---
+    # In your NHANES file smoking is coded 1/2, so turn that into 0/1.
+    if "smoking" in nhanes_sim.columns:
+        sm_raw = pd.to_numeric(nhanes_sim["smoking"], errors="coerce").astype("Int64")
+        sm_recode = pd.Series(np.nan, index=nhanes_sim.index, dtype="float")
+        # assume 1 = non-smoker, 2 = smoker (standard for your derived var)
+        sm_recode[sm_raw == 1] = 0
+        sm_recode[sm_raw == 2] = 1
+        nhanes_sim["smoking"] = sm_recode
+
+    # --- 3. Clean Education: keep 1–5, everything else -> NaN ---
+    if "Education" in nhanes_sim.columns:
+        edu_raw = pd.to_numeric(nhanes_sim["Education"], errors="coerce").astype("Int64")
+        edu_clean = pd.Series(np.nan, index=nhanes_sim.index, dtype="float")
+        edu_clean[edu_raw.isin([1, 2, 3, 4, 5])] = edu_raw[edu_raw.isin([1, 2, 3, 4, 5])]
+        nhanes_sim["Education"] = edu_clean
+
+    # --- 4. Force all feature cols to numeric (turn weird strings -> NaN) ---
     for col in FEATURE_COLS:
         if col in nhanes_sim.columns:
             nhanes_sim[col] = pd.to_numeric(nhanes_sim[col], errors="coerce")
+
+    # --- 5. Clip continuous vars to plausible ranges to avoid crazy values ---
+    clip_ranges = {
+        "AgeYears": (18, 90),
+        "bmi": (15, 60),
+        "waist_circumference": (50, 200),
+        "avg_systolic": (80, 220),
+        "avg_diastolic": (40, 140),
+        "avg_HR": (40, 140),
+        "FamIncome_to_poverty_ratio": (0.05, 10.0),
+    }
+    for col, (lo, hi) in clip_ranges.items():
+        if col in nhanes_sim.columns:
+            nhanes_sim[col] = nhanes_sim[col].clip(lo, hi)
+
+    # Drop rows missing core predictors entirely
+    core_cols = [c for c in ["AgeYears", "bmi", "avg_systolic", "avg_diastolic"] if c in nhanes_sim.columns]
+    if core_cols:
+        nhanes_sim = nhanes_sim.dropna(subset=core_cols)
+
+    # Precompute means for imputation
+    numeric_for_mean = [
+        "bmi",
+        "AgeYears",
+        "waist_circumference",
+        "avg_systolic",
+        "avg_diastolic",
+        "avg_HR",
+        "FamIncome_to_poverty_ratio",
+        "activity_level",
+        "smoking",
+        "Education",
+        "Race",
+        "Gender",
+    ]
+    existing_cols = [c for c in numeric_for_mean if c in nhanes_sim.columns]
+    nhanes_means = nhanes_sim[existing_cols].mean(numeric_only=True)
+else:
+    nhanes_means = pd.Series(dtype=float)
 
     # 2) Clip continuous vars to plausible ranges to avoid crazy values
     clip_ranges = {
