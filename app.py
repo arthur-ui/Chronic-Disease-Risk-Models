@@ -13,7 +13,7 @@ pipe_diab = joblib.load("diabetes_model.joblib")
 pipe_ckd = joblib.load("ckd_model.joblib")
 pipe_cvd = joblib.load("cvd_model.joblib")
 
-st.set_page_config(page_title="Non-Dietary Chronic Disease Risk Tool", page_icon="🧬")
+st.set_page_config(page_title="Non-Dietary Chronic Disease Risk Tool", page_icon="A")
 
 # -------------------------------------------------
 # Shared constants / helper functions
