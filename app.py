@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import np
+import numpy as np
 import joblib
 import altair as alt
 import plotly.graph_objects as go
