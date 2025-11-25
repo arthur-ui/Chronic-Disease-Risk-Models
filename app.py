@@ -166,12 +166,6 @@ if HAVE_NHANES_SIM:
     # ---------- recode / clean categorical variables ----------
 
     # Race (RIDRETH3 -> 4-category scheme)
-    # 1 = Mexican American
-    # 2 = Other Hispanic
-    # 3 = Non-Hispanic White
-    # 4 = Non-Hispanic Black
-    # 6 = Non-Hispanic Asian
-    # 7 = Other / Multi
     if "Race" in nhanes_sim.columns:
         race_raw = pd.to_numeric(nhanes_sim["Race"], errors="coerce").astype("Int64")
         race_recode = pd.Series(np.nan, index=nhanes_sim.index, dtype="float")
@@ -274,320 +268,331 @@ tab_calc, tab_research = st.tabs(["Risk calculator", "Researcher tools"])
 #                     TAB 1: RISK CALCULATOR
 # ============================================================
 with tab_calc:
-    st.title("Non-Dietary Chronic Disease Risk Assessment Tool")
-    st.caption("Research prototype based on NHANES 2011–2020. Not for clinical use.")
-
-    # ---------------- Anthropometrics ----------------
-    st.subheader("Anthropometrics")
-
-    colA, colB = st.columns(2)
-
-    with colA:
-        height_unit = st.selectbox("Height unit", ["cm", "inches"])
-        if height_unit == "cm":
-            height_val = st.number_input("Height (cm)", 100.0, 250.0, 175.0)
-            height_m = height_val / 100.0
-        else:
-            height_val = st.number_input("Height (inches)", 40.0, 100.0, 70.0)
-            height_m = height_val * 0.0254
-
-    with colB:
-        weight_unit = st.selectbox("Weight unit", ["kg", "lbs"])
-        if weight_unit == "kg":
-            weight_val = st.number_input("Weight (kg)", 30.0, 300.0, 75.0)
-            weight_kg = weight_val
-        else:
-            weight_val = st.number_input("Weight (lbs)", 60.0, 600.0, 165.0)
-            weight_kg = weight_val * 0.453592
-
-    bmi = weight_kg / (height_m ** 2)
-    st.write(f"**Calculated BMI:** {bmi:.1f} kg/m²")
-
-    # ---------------- Socioeconomic ----------------
-    st.subheader("Socioeconomic variables")
-
-    colF1, colF2 = st.columns(2)
-    with colF1:
-        family_income = st.number_input("Annual family income (USD)", 0, 300000, 60000)
-    with colF2:
-        household_size = st.selectbox("Household size", list(range(1, 13)), index=3)
-
-    poverty_threshold = compute_poverty_threshold(household_size)
-    st.write(
-        f"**Estimated poverty threshold (48 states, {household_size} people):** "
-        f"${poverty_threshold:,.0f}"
-    )
-    income_ratio = family_income / poverty_threshold if poverty_threshold > 0 else 0.0
-    st.write(f"**Income-to-poverty ratio:** {income_ratio:.2f}")
-
-    # ---------------- Demographics & clinical ----------------
-    st.subheader("Demographics & clinical measurements")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        age = st.number_input("Age (years)", 18, 90, 45)
-        waist = st.number_input("Waist circumference (cm)", 50.0, 200.0, 95.0)
-        sbp = st.number_input("Avg systolic BP (mmHg)", 80, 220, 120)
-        smoker = st.selectbox("Current smoker?", ["No", "Yes"])
-
-    with col2:
-        dbp = st.number_input("Avg diastolic BP (mmHg)", 40, 140, 75)
-        hr = st.number_input("Resting heart rate (bpm)", 40, 140, 70)
-        activity = st.selectbox("Physical activity level", ["Low", "Moderate", "High"])
-
-    education = st.selectbox(
-        "Education level (NHANES categories)",
-        [
-            "Less than 9th grade",
-            "9-11th grade (Includes 12th w/o diploma)",
-            "High school graduate/GED or equivalent",
-            "Some college or AA degree",
-            "College graduate or above"
-        ]
+    # inner tabs: individual calculator vs individual sensitivity
+    tab_indiv_calc, tab_indiv_sens = st.tabs(
+        ["Individual risk calculator", "Individual sensitivity analysis"]
     )
 
-    gender = st.selectbox("Gender", ["Male", "Female"])
-    race = st.selectbox(
-        "Race/ethnicity",
-        ["Non-Hispanic White", "Non-Hispanic Black", "Hispanic", "Other"]
-    )
+    # ---------------------------
+    # A. Individual risk calculator
+    # ---------------------------
+    with tab_indiv_calc:
+        st.title("Non-Dietary Chronic Disease Risk Assessment Tool")
+        st.caption("Research prototype based on NHANES 2011–2020. Not for clinical use.")
 
-    # ---------------- Predict ----------------
-    if st.button("Estimate risks", key="calc_button"):
-        X = build_feature_df(
-            bmi=bmi, age=age, waist=waist, activity_label=activity,
-            smoker_label=smoker, sbp=sbp, dbp=dbp, hr=hr,
-            income_ratio=income_ratio, education_label=education,
-            race_label=race, gender_label=gender
+        # ---------------- Anthropometrics ----------------
+        st.subheader("Anthropometrics")
+
+        colA, colB = st.columns(2)
+
+        with colA:
+            height_unit = st.selectbox("Height unit", ["cm", "inches"])
+            if height_unit == "cm":
+                height_val = st.number_input("Height (cm)", 100.0, 250.0, 175.0)
+                height_m = height_val / 100.0
+            else:
+                height_val = st.number_input("Height (inches)", 40.0, 100.0, 70.0)
+                height_m = height_val * 0.0254
+
+        with colB:
+            weight_unit = st.selectbox("Weight unit", ["kg", "lbs"])
+            if weight_unit == "kg":
+                weight_val = st.number_input("Weight (kg)", 30.0, 300.0, 75.0)
+                weight_kg = weight_val
+            else:
+                weight_val = st.number_input("Weight (lbs)", 60.0, 600.0, 165.0)
+                weight_kg = weight_val * 0.453592
+
+        bmi = weight_kg / (height_m ** 2)
+        st.write(f"**Calculated BMI:** {bmi:.1f} kg/m²")
+
+        # ---------------- Socioeconomic ----------------
+        st.subheader("Socioeconomic variables")
+
+        colF1, colF2 = st.columns(2)
+        with colF1:
+            family_income = st.number_input("Annual family income (USD)", 0, 300000, 60000)
+        with colF2:
+            household_size = st.selectbox("Household size", list(range(1, 13)), index=3)
+
+        poverty_threshold = compute_poverty_threshold(household_size)
+        st.write(
+            f"**Estimated poverty threshold (48 states, {household_size} people):** "
+            f"${poverty_threshold:,.0f}"
+        )
+        income_ratio = family_income / poverty_threshold if poverty_threshold > 0 else 0.0
+        st.write(f"**Income-to-poverty ratio:** {income_ratio:.2f}")
+
+        # ---------------- Demographics & clinical ----------------
+        st.subheader("Demographics & clinical measurements")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            age = st.number_input("Age (years)", 18, 90, 45)
+            waist = st.number_input("Waist circumference (cm)", 50.0, 200.0, 95.0)
+            sbp = st.number_input("Avg systolic BP (mmHg)", 80, 220, 120)
+            smoker = st.selectbox("Current smoker?", ["No", "Yes"])
+
+        with col2:
+            dbp = st.number_input("Avg diastolic BP (mmHg)", 40, 140, 75)
+            hr = st.number_input("Resting heart rate (bpm)", 40, 140, 70)
+            activity = st.selectbox("Physical activity level", ["Low", "Moderate", "High"])
+
+        education = st.selectbox(
+            "Education level (NHANES categories)",
+            [
+                "Less than 9th grade",
+                "9-11th grade (Includes 12th w/o diploma)",
+                "High school graduate/GED or equivalent",
+                "Some college or AA degree",
+                "College graduate or above"
+            ]
         )
 
-        X_model = prepare_for_model(X)
-        p_diab, p_ckd, p_cvd = predict_three(X_model)
+        gender = st.selectbox("Gender", ["Male", "Female"])
+        race = st.selectbox(
+            "Race/ethnicity",
+            ["Non-Hispanic White", "Non-Hispanic Black", "Hispanic", "Other"]
+        )
 
-        r1, r2, r3 = st.columns(3)
-        r1.metric("Diabetes risk", f"{p_diab[0]*100:.1f}%")
-        r2.metric("CKD risk", f"{p_ckd[0]*100:.1f}%")
-        r3.metric("CVD risk", f"{p_cvd[0]*100:.1f}%")
+        # ---------------- Predict ----------------
+        if st.button("Estimate risks", key="calc_button"):
+            X = build_feature_df(
+                bmi=bmi, age=age, waist=waist, activity_label=activity,
+                smoker_label=smoker, sbp=sbp, dbp=dbp, hr=hr,
+                income_ratio=income_ratio, education_label=education,
+                race_label=race, gender_label=gender
+            )
 
-        st.caption("These estimates are based solely on non-dietary predictors.")
+            X_model = prepare_for_model(X)
+            p_diab, p_ckd, p_cvd = predict_three(X_model)
 
-    st.markdown("---")
-    st.markdown("**Model info**")
-    st.markdown("- Bagged decision trees with preprocessing pipeline")
-    st.markdown("- Inputs mirror NHANES preprocessing pipeline")
+            r1, r2, r3 = st.columns(3)
+            r1.metric("Diabetes risk", f"{p_diab[0]*100:.1f}%")
+            r2.metric("CKD risk", f"{p_ckd[0]*100:.1f}%")
+            r3.metric("CVD risk", f"{p_cvd[0]*100:.1f}%")
+
+            st.caption("These estimates are based solely on non-dietary predictors.")
+
+        st.markdown("---")
+        st.markdown("**Model info**")
+        st.markdown("- Bagged decision trees with preprocessing pipeline")
+        st.markdown("- Inputs mirror NHANES preprocessing pipeline")
+
+    # ---------------------------
+    # B. Individual sensitivity analysis (moved from Research tab)
+    # ---------------------------
+    with tab_indiv_sens:
+        st.title("Individual sensitivity analysis")
+        st.caption(
+            "Explore local sensitivity of predicted risk for a single baseline profile. "
+            "All curves and heatmaps assume an individual with the baseline attributes below."
+        )
+
+        # Baseline profile for 1D/2D tools
+        st.subheader("Baseline profile")
+        colB1, colB2, colB3 = st.columns(3)
+
+        with colB1:
+            age_r = st.number_input("Age (years)", 18, 90, 50, key="age_r")
+            bmi_r = st.number_input("BMI (kg/m²)", 15.0, 60.0, 28.0, key="bmi_r")
+            waist_r = st.number_input("Waist circumference (cm)", 50.0, 200.0, 100.0, key="waist_r")
+
+        with colB2:
+            sbp_r = st.number_input("Systolic BP (mmHg)", 80, 220, 135, key="sbp_r")
+            dbp_r = st.number_input("Diastolic BP (mmHg)", 40, 140, 80, key="dbp_r")
+            hr_r = st.number_input("Resting heart rate (bpm)", 40, 140, 72, key="hr_r")
+
+        with colB3:
+            family_income_r = st.number_input("Annual family income (USD)", 0, 300000, 60000, key="inc_r")
+            household_size_r = st.selectbox("Household size", list(range(1, 13)), index=3, key="hh_r")
+
+        poverty_threshold_r = compute_poverty_threshold(household_size_r)
+        income_ratio_r = family_income_r / poverty_threshold_r if poverty_threshold_r > 0 else 0.0
+        st.write(f"Baseline income-to-poverty ratio: **{income_ratio_r:.2f}**")
+
+        colB4, colB5, colB6 = st.columns(3)
+        with colB4:
+            education_r = st.selectbox(
+                "Education (NHANES categories)", list(education_map.keys()),
+                index=3, key="edu_r"
+            )
+        with colB5:
+            gender_r = st.selectbox("Gender", ["Male", "Female"], key="gender_r")
+        with colB6:
+            race_r = st.selectbox(
+                "Race/ethnicity",
+                ["Non-Hispanic White", "Non-Hispanic Black", "Hispanic", "Other"],
+                key="race_r"
+            )
+
+        baseline_df = build_feature_df(
+            bmi=bmi_r, age=age_r, waist=waist_r,
+            activity_label="Moderate",  # default
+            smoker_label="No",
+            sbp=sbp_r, dbp=dbp_r, hr=hr_r,
+            income_ratio=income_ratio_r,
+            education_label=education_r,
+            race_label=race_r, gender_label=gender_r
+        )
+        baseline_X = prepare_for_model(baseline_df)
+        base_diab, base_ckd, base_cvd = predict_three(baseline_X)
+        st.markdown(
+            f"Baseline predicted risks – Diabetes: **{base_diab[0]*100:.2f}%**, "
+            f"CKD: **{base_ckd[0]*100:.2f}%**, CVD: **{base_cvd[0]*100:.2f}%**."
+        )
+
+        st.markdown("---")
+
+        # 1D sensitivity (individual)
+        st.subheader("One-dimensional sensitivity analysis (individual)")
+
+        var_options_indiv = {
+            "Age (years)": ("AgeYears", 20, 85, 40),
+            "BMI (kg/m²)": ("bmi", 18, 45, 40),
+            "Waist circumference (cm)": ("waist_circumference", 60, 140, 40),
+            "Systolic BP (mmHg)": ("avg_systolic", 90, 180, 40),
+            "Diastolic BP (mmHg)": ("avg_diastolic", 50, 110, 40),
+            "Resting HR (bpm)": ("avg_HR", 50, 110, 40),
+            "Income-to-poverty ratio": ("FamIncome_to_poverty_ratio", 0.3, 5.0, 40),
+        }
+
+        sens_label_indiv = st.selectbox(
+            "Choose variable to vary",
+            list(var_options_indiv.keys()),
+            index=0,
+            key="indiv_sens_var"
+        )
+        var_col, vmin, vmax, n_points = var_options_indiv[sens_label_indiv]
+        vals = np.linspace(vmin, vmax, n_points)
+
+        sens_X = pd.concat([baseline_X] * n_points, ignore_index=True)
+        sens_X[var_col] = vals
+
+        s_diab, s_ckd, s_cvd = predict_three(sens_X)
+
+        sens_df = pd.DataFrame({
+            "Value": vals,
+            "Diabetes": s_diab,
+            "CKD": s_ckd,
+            "CVD": s_cvd,
+        }).melt("Value", var_name="Disease", value_name="Risk")
+
+        sens_chart = (
+            alt.Chart(sens_df)
+            .mark_line()
+            .encode(
+                x=alt.X("Value:Q", title=sens_label_indiv),
+                y=alt.Y("Risk:Q", title="Predicted risk"),
+                color=alt.Color("Disease:N", title=None),
+            )
+            .properties(height=300)
+        )
+
+        st.altair_chart(sens_chart, use_container_width=True)
+        st.caption("Curves vary one predictor for the baseline individual, holding all others fixed.")
+
+        st.markdown("---")
+
+        # 2D heatmaps (individual)
+        st.subheader("Two-variable interaction heatmaps (individual)")
+
+        two_d_var_options_indiv = {
+            "Age (years)": ("AgeYears", 20, 85),
+            "BMI (kg/m²)": ("bmi", 18, 45),
+            "Waist circumference (cm)": ("waist_circumference", 60, 140),
+            "Systolic BP (mmHg)": ("avg_systolic", 90, 180),
+            "Diastolic BP (mmHg)": ("avg_diastolic", 50, 110),
+            "Resting HR (bpm)": ("avg_HR", 50, 110),
+            "Income-to-poverty ratio": ("FamIncome_to_poverty_ratio", 0.3, 5.0),
+        }
+
+        colH1, colH2 = st.columns(2)
+        with colH1:
+            heat_x_label_indiv = st.selectbox(
+                "X-axis variable",
+                list(two_d_var_options_indiv.keys()),
+                index=3,  # default SBP
+                key="indiv_heat_x"
+            )
+        with colH2:
+            y_choices = [k for k in two_d_var_options_indiv.keys() if k != heat_x_label_indiv]
+            heat_y_label_indiv = st.selectbox(
+                "Y-axis variable",
+                y_choices,
+                index=1,
+                key="indiv_heat_y"
+            )
+
+        (x_col, x_min, x_max) = two_d_var_options_indiv[heat_x_label_indiv]
+        (y_col, y_min, y_max) = two_d_var_options_indiv[heat_y_label_indiv]
+
+        n_x = st.slider("Resolution (X)", 10, 60, 25, key="indiv_nx_heat")
+        n_y = st.slider("Resolution (Y)", 10, 60, 25, key="indiv_ny_heat")
+
+        x_vals = np.linspace(x_min, x_max, n_x)
+        y_vals = np.linspace(y_min, y_max, n_y)
+        X_grid, Y_grid = np.meshgrid(x_vals, y_vals)
+        n_grid = X_grid.size
+
+        grid_X = pd.concat([baseline_X] * n_grid, ignore_index=True)
+        grid_X[x_col] = X_grid.ravel()
+        grid_X[y_col] = Y_grid.ravel()
+
+        h_diab, h_ckd, h_cvd = predict_three(grid_X)
+
+        z_diab = h_diab.reshape(n_y, n_x)
+        z_ckd = h_ckd.reshape(n_y, n_x)
+        z_cvd = h_cvd.reshape(n_y, n_x)
+
+        max_risk = float(max(z_diab.max(), z_ckd.max(), z_cvd.max()))
+
+        fig_heat = make_subplots(
+            rows=1, cols=3,
+            subplot_titles=("Diabetes", "CKD", "CVD"),
+            horizontal_spacing=0.06
+        )
+
+        for idx, z in enumerate([z_diab, z_ckd, z_cvd], start=1):
+            fig_heat.add_trace(
+                go.Heatmap(
+                    x=x_vals,
+                    y=y_vals,
+                    z=z,
+                    coloraxis="coloraxis"
+                ),
+                row=1, col=idx
+            )
+
+        fig_heat.update_layout(
+            coloraxis=dict(colorscale="Viridis", cmin=0.0, cmax=max_risk),
+            margin=dict(l=40, r=40, t=40, b=40),
+        )
+
+        # Axis titles
+        fig_heat.update_xaxes(title_text=heat_x_label_indiv, row=1, col=2)
+        fig_heat.update_yaxes(title_text=heat_y_label_indiv, row=1, col=1)
+        for c in [2, 3]:
+            fig_heat.update_yaxes(showticklabels=False, row=1, col=c)
+
+        st.plotly_chart(fig_heat, use_container_width=True)
+        st.caption(
+            "Heatmaps show predicted risk for the baseline individual across a 2D grid of values "
+            "for the selected predictors."
+        )
 
 
 # ============================================================
-#                 TAB 2: RESEARCHER TOOLS
+#                 TAB 2: RESEARCHER TOOLS (POPULATION-BASED)
 # ============================================================
 with tab_research:
-    st.title("Researcher tools & sensitivity analysis")
+    st.title("Researcher tools & population sensitivity")
     st.caption(
-        "Explore how changes in predictors affect modelled risk for "
-        "diabetes, CKD, and CVD. All calculations use the same non-laboratory "
-        "models as the main risk calculator."
+        "All tools in this tab use a synthetic population sampled from NHANES. "
+        "You can modify predictors, compare baseline vs scenario risks, and explore "
+        "population-level sensitivity curves and heatmaps."
     )
 
-    # ---------------- Baseline profile for 1D/2D tools ----------------
-    st.subheader("Baseline profile (held constant for sensitivity analyses)")
-    colB1, colB2, colB3 = st.columns(3)
-
-    with colB1:
-        age_r = st.number_input("Age (years)", 18, 90, 50, key="age_r")
-        bmi_r = st.number_input("BMI (kg/m²)", 15.0, 60.0, 28.0, key="bmi_r")
-        waist_r = st.number_input("Waist circumference (cm)", 50.0, 200.0, 100.0, key="waist_r")
-
-    with colB2:
-        sbp_r = st.number_input("Systolic BP (mmHg)", 80, 220, 135, key="sbp_r")
-        dbp_r = st.number_input("Diastolic BP (mmHg)", 40, 140, 80, key="dbp_r")
-        hr_r = st.number_input("Resting heart rate (bpm)", 40, 140, 72, key="hr_r")
-
-    with colB3:
-        family_income_r = st.number_input("Annual family income (USD)", 0, 300000, 60000, key="inc_r")
-        household_size_r = st.selectbox("Household size", list(range(1, 13)), index=3, key="hh_r")
-
-    poverty_threshold_r = compute_poverty_threshold(household_size_r)
-    income_ratio_r = family_income_r / poverty_threshold_r if poverty_threshold_r > 0 else 0.0
-    st.write(f"Baseline income-to-poverty ratio: **{income_ratio_r:.2f}**")
-
-    colB4, colB5, colB6 = st.columns(3)
-    with colB4:
-        education_r = st.selectbox(
-            "Education (NHANES categories)", list(education_map.keys()),
-            index=3, key="edu_r"
-        )
-    with colB5:
-        gender_r = st.selectbox("Gender", ["Male", "Female"], key="gender_r")
-    with colB6:
-        race_r = st.selectbox(
-            "Race/ethnicity",
-            ["Non-Hispanic White", "Non-Hispanic Black", "Hispanic", "Other"],
-            key="race_r"
-        )
-
-    baseline_df = build_feature_df(
-        bmi=bmi_r, age=age_r, waist=waist_r,
-        activity_label="Moderate",  # default
-        smoker_label="No",
-        sbp=sbp_r, dbp=dbp_r, hr=hr_r,
-        income_ratio=income_ratio_r,
-        education_label=education_r,
-        race_label=race_r, gender_label=gender_r
-    )
-    baseline_X = prepare_for_model(baseline_df)
-    base_diab, base_ckd, base_cvd = predict_three(baseline_X)
-    st.markdown(
-        f"Baseline predicted risks – Diabetes: **{base_diab[0]*100:.2f}%**, "
-        f"CKD: **{base_ckd[0]*100:.2f}%**, CVD: **{base_cvd[0]*100:.2f}%**."
-    )
-
-    st.markdown("---")
-
-    # ============================================================
-    # 1. One-dimensional sensitivity curves (all 3 diseases)
-    # ============================================================
-    st.subheader("One-dimensional sensitivity analysis")
-
-    var_options = {
-        "Age (years)": ("AgeYears", 20, 85, 40),
-        "BMI (kg/m²)": ("bmi", 18, 45, 40),
-        "Waist circumference (cm)": ("waist_circumference", 60, 140, 40),
-        "Systolic BP (mmHg)": ("avg_systolic", 90, 180, 40),
-        "Diastolic BP (mmHg)": ("avg_diastolic", 50, 110, 40),
-        "Resting HR (bpm)": ("avg_HR", 50, 110, 40),
-        "Income-to-poverty ratio": ("FamIncome_to_poverty_ratio", 0.3, 5.0, 40),
-    }
-
-    sens_label = st.selectbox(
-        "Choose variable to vary",
-        list(var_options.keys()),
-        index=0
-    )
-    var_col, vmin, vmax, n_points = var_options[sens_label]
-    vals = np.linspace(vmin, vmax, n_points)
-
-    sens_X = pd.concat([baseline_X] * n_points, ignore_index=True)
-    sens_X[var_col] = vals
-
-    s_diab, s_ckd, s_cvd = predict_three(sens_X)
-
-    sens_df = pd.DataFrame({
-        "Value": vals,
-        "Diabetes": s_diab,
-        "CKD": s_ckd,
-        "CVD": s_cvd,
-    }).melt("Value", var_name="Disease", value_name="Risk")
-
-    sens_chart = (
-        alt.Chart(sens_df)
-        .mark_line()
-        .encode(
-            x=alt.X("Value:Q", title=sens_label),
-            y=alt.Y("Risk:Q", title="Predicted risk"),
-            color=alt.Color("Disease:N", title=None),
-        )
-        .properties(height=300)
-    )
-
-    st.altair_chart(sens_chart, use_container_width=True)
-    st.caption("Risk curves are generated by varying one predictor while holding the baseline profile constant.")
-
-    st.markdown("---")
-
-    # ============================================================
-    # 2. Two-variable interaction heatmaps (Plotly, 3 panels)
-    # ============================================================
-    st.subheader("Two-variable interaction heatmaps")
-
-    two_d_var_options = {
-        "Age (years)": ("AgeYears", 20, 85),
-        "BMI (kg/m²)": ("bmi", 18, 45),
-        "Waist circumference (cm)": ("waist_circumference", 60, 140),
-        "Systolic BP (mmHg)": ("avg_systolic", 90, 180),
-        "Diastolic BP (mmHg)": ("avg_diastolic", 50, 110),
-        "Resting HR (bpm)": ("avg_HR", 50, 110),
-        "Income-to-poverty ratio": ("FamIncome_to_poverty_ratio", 0.3, 5.0),
-    }
-
-    colH1, colH2 = st.columns(2)
-    with colH1:
-        heat_x_label = st.selectbox(
-            "X-axis variable",
-            list(two_d_var_options.keys()),
-            index=3  # default SBP
-        )
-    with colH2:
-        y_choices = [k for k in two_d_var_options.keys() if k != heat_x_label]
-        heat_y_label = st.selectbox(
-            "Y-axis variable",
-            y_choices,
-            index=1
-        )
-
-    (x_col, x_min, x_max) = two_d_var_options[heat_x_label]
-    (y_col, y_min, y_max) = two_d_var_options[heat_y_label]
-
-    n_x = st.slider("Resolution (X)", 10, 60, 25, key="nx_heat")
-    n_y = st.slider("Resolution (Y)", 10, 60, 25, key="ny_heat")
-
-    x_vals = np.linspace(x_min, x_max, n_x)
-    y_vals = np.linspace(y_min, y_max, n_y)
-    X_grid, Y_grid = np.meshgrid(x_vals, y_vals)
-    n_grid = X_grid.size
-
-    grid_X = pd.concat([baseline_X] * n_grid, ignore_index=True)
-    grid_X[x_col] = X_grid.ravel()
-    grid_X[y_col] = Y_grid.ravel()
-
-    h_diab, h_ckd, h_cvd = predict_three(grid_X)
-
-    z_diab = h_diab.reshape(n_y, n_x)
-    z_ckd = h_ckd.reshape(n_y, n_x)
-    z_cvd = h_cvd.reshape(n_y, n_x)
-
-    max_risk = float(max(z_diab.max(), z_ckd.max(), z_cvd.max()))
-
-    fig_heat = make_subplots(
-        rows=1, cols=3,
-        subplot_titles=("Diabetes", "CKD", "CVD"),
-        horizontal_spacing=0.06
-    )
-
-    for idx, z in enumerate([z_diab, z_ckd, z_cvd], start=1):
-        fig_heat.add_trace(
-            go.Heatmap(
-                x=x_vals,
-                y=y_vals,
-                z=z,
-                coloraxis="coloraxis"
-            ),
-            row=1, col=idx
-        )
-
-    fig_heat.update_layout(
-        coloraxis=dict(colorscale="Viridis", cmin=0.0, cmax=max_risk),
-        margin=dict(l=40, r=40, t=40, b=40),
-    )
-
-    #titles axes on only one panel
-    fig_heat.update_xaxes(title_text=heat_x_label, row=1, col=2)
-    fig_heat.update_yaxes(title_text=heat_y_label, row=1, col=1)
-
-    for c in [2, 3]:
-        fig_heat.update_yaxes(showticklabels=False, row=1, col=c)
-
-
-    st.plotly_chart(fig_heat, use_container_width=True)
-    st.caption(
-        "Heatmaps show predicted risk across a 2D grid of values for the selected predictors, "
-        "with all other variables fixed at the baseline profile."
-    )
-
-    st.markdown("---")
-
-    # ============================================================
-    # 3. Population scenario simulator (multi-variable)
-    # ============================================================
     st.subheader("Population scenario simulator")
 
     if not HAVE_NHANES_SIM:
@@ -859,13 +864,16 @@ with tab_research:
             # stash for later plotting without re-running simulation
             st.session_state["df_sub"] = df_sub
             st.session_state["strat_option"] = strat_option
+            st.session_state["base_X"] = base_X
+            st.session_state["pop_df"] = pop_df
 
             st.caption(
                 "Bars above show overall relative (%) change in mean modelled risk. "
-                "Use the controls below to examine how different subgroups contribute to these changes."
+                "Use the controls below to examine how different subgroups and global shifts "
+                "affect these changes."
             )
 
-        # ------------- Subgroup contributions plot (relative % + CIs) -------------
+        # ------------------ Subgroup contributions plot ------------------
         if "df_sub" in st.session_state:
             df_sub = st.session_state["df_sub"]
             strat_label = st.session_state["strat_option"]
@@ -937,7 +945,158 @@ with tab_research:
                 (
                     "Bars show how each subgroup contributes to the overall relative (%) change "
                     "in mean modelled risk for {disease_choice}. The sum of the subgroup effects "
-                    "(is) consistent with the overall relative change shown above (up to sampling error)."
+                    "is consistent with the overall relative change shown above (up to sampling error)."
                 ).format(disease_choice=disease_choice)
             )
 
+        # ------------------ Population 1D sensitivity ------------------
+        if "base_X" in st.session_state:
+            st.markdown("---")
+            st.subheader("Population-level one-dimensional sensitivity")
+
+            base_X_pop = st.session_state["base_X"]
+
+            pop_var_options = {
+                "Age (years)": ("AgeYears", 20, 85, 40),
+                "BMI (kg/m²)": ("bmi", 18, 45, 40),
+                "Waist circumference (cm)": ("waist_circumference", 60, 140, 40),
+                "Systolic BP (mmHg)": ("avg_systolic", 90, 180, 40),
+                "Diastolic BP (mmHg)": ("avg_diastolic", 50, 110, 40),
+                "Resting HR (bpm)": ("avg_HR", 50, 110, 40),
+                "Income-to-poverty ratio": ("FamIncome_to_poverty_ratio", 0.3, 5.0, 40),
+            }
+
+            pop_sens_label = st.selectbox(
+                "Variable to shift across the whole population",
+                list(pop_var_options.keys()),
+                index=0,
+                key="pop_sens_var"
+            )
+            var_col, vmin, vmax, n_points = pop_var_options[pop_sens_label]
+            vals = np.linspace(vmin, vmax, n_points)
+
+            mean_diab = []
+            mean_ckd = []
+            mean_cvd = []
+
+            for v in vals:
+                X_mod = base_X_pop.copy()
+                X_mod[var_col] = v
+                p_d, p_k, p_c = predict_three(X_mod)
+                mean_diab.append(p_d.mean())
+                mean_ckd.append(p_k.mean())
+                mean_cvd.append(p_c.mean())
+
+            pop_sens_df = pd.DataFrame({
+                "Value": vals,
+                "Diabetes": mean_diab,
+                "CKD": mean_ckd,
+                "CVD": mean_cvd,
+            }).melt("Value", var_name="Disease", value_name="Mean_risk")
+
+            pop_sens_chart = (
+                alt.Chart(pop_sens_df)
+                .mark_line()
+                .encode(
+                    x=alt.X("Value:Q", title=pop_sens_label),
+                    y=alt.Y("Mean_risk:Q", title="Mean predicted risk in population"),
+                    color=alt.Color("Disease:N", title=None),
+                )
+                .properties(height=300)
+            )
+
+            st.altair_chart(pop_sens_chart, use_container_width=True)
+            st.caption(
+                "Curves show mean modelled risk in the synthetic population if everyone "
+                f"had the specified value of {pop_sens_label}."
+            )
+
+        # ------------------ Population 2D heatmaps ------------------
+        if "base_X" in st.session_state:
+            st.markdown("---")
+            st.subheader("Population-level two-variable heatmaps")
+
+            base_X_pop = st.session_state["base_X"]
+
+            pop_two_d_var_options = {
+                "Age (years)": ("AgeYears", 20, 85),
+                "BMI (kg/m²)": ("bmi", 18, 45),
+                "Waist circumference (cm)": ("waist_circumference", 60, 140),
+                "Systolic BP (mmHg)": ("avg_systolic", 90, 180),
+                "Diastolic BP (mmHg)": ("avg_diastolic", 50, 110),
+                "Resting HR (bpm)": ("avg_HR", 50, 110),
+                "Income-to-poverty ratio": ("FamIncome_to_poverty_ratio", 0.3, 5.0),
+            }
+
+            colH1p, colH2p = st.columns(2)
+            with colH1p:
+                pop_heat_x_label = st.selectbox(
+                    "X-axis variable",
+                    list(pop_two_d_var_options.keys()),
+                    index=3,
+                    key="pop_heat_x"
+                )
+            with colH2p:
+                y_choices = [k for k in pop_two_d_var_options.keys() if k != pop_heat_x_label]
+                pop_heat_y_label = st.selectbox(
+                    "Y-axis variable",
+                    y_choices,
+                    index=1,
+                    key="pop_heat_y"
+                )
+
+            (x_col, x_min, x_max) = pop_two_d_var_options[pop_heat_x_label]
+            (y_col, y_min, y_max) = pop_two_d_var_options[pop_heat_y_label]
+
+            n_x = st.slider("Resolution (X)", 10, 60, 25, key="pop_nx_heat")
+            n_y = st.slider("Resolution (Y)", 10, 60, 25, key="pop_ny_heat")
+
+            x_vals = np.linspace(x_min, x_max, n_x)
+            y_vals = np.linspace(y_min, y_max, n_y)
+            X_grid, Y_grid = np.meshgrid(x_vals, y_vals)
+            n_grid = X_grid.size
+
+            grid_X = pd.concat([base_X_pop] * n_grid, ignore_index=True)
+            grid_X[x_col] = X_grid.ravel()
+            grid_X[y_col] = Y_grid.ravel()
+
+            h_diab, h_ckd, h_cvd = predict_three(grid_X)
+
+            z_diab = h_diab.reshape(n_y, n_x)
+            z_ckd = h_ckd.reshape(n_y, n_x)
+            z_cvd = h_cvd.reshape(n_y, n_x)
+
+            max_risk = float(max(z_diab.max(), z_ckd.max(), z_cvd.max()))
+
+            fig_heat_pop = make_subplots(
+                rows=1, cols=3,
+                subplot_titles=("Diabetes", "CKD", "CVD"),
+                horizontal_spacing=0.06
+            )
+
+            for idx, z in enumerate([z_diab, z_ckd, z_cvd], start=1):
+                fig_heat_pop.add_trace(
+                    go.Heatmap(
+                        x=x_vals,
+                        y=y_vals,
+                        z=z,
+                        coloraxis="coloraxis"
+                    ),
+                    row=1, col=idx
+                )
+
+            fig_heat_pop.update_layout(
+                coloraxis=dict(colorscale="Viridis", cmin=0.0, cmax=max_risk),
+                margin=dict(l=40, r=40, t=40, b=40),
+            )
+
+            fig_heat_pop.update_xaxes(title_text=pop_heat_x_label, row=1, col=2)
+            fig_heat_pop.update_yaxes(title_text=pop_heat_y_label, row=1, col=1)
+            for c in [2, 3]:
+                fig_heat_pop.update_yaxes(showticklabels=False, row=1, col=c)
+
+            st.plotly_chart(fig_heat_pop, use_container_width=True)
+            st.caption(
+                "Heatmaps show mean predicted risk in the synthetic population if everyone "
+                "had the specified pair of values for the two selected variables."
+            )
