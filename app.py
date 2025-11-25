@@ -50,7 +50,7 @@ race_map = {
 }
 race_inv_map = {v: k for k, v in race_map.items()}
 
-# NOTE: model was trained with categorical “smoking”; here we use 0/1
+# model trained with numeric “smoking”; we use 0/1 here
 smoke_map = {"No": 0, "Yes": 1}
 smoke_inv_map = {v: k for k, v in smoke_map.items()}
 
@@ -72,18 +72,8 @@ FEATURE_COLS = [
     "Gender",
 ]
 
-NUMERIC_COLS = [
-    "bmi",
-    "AgeYears",
-    "waist_circumference",
-    "activity_level",  # treated as numeric in training
-    "avg_systolic",
-    "avg_diastolic",
-    "avg_HR",
-    "FamIncome_to_poverty_ratio",
-]
-
-CATEGORICAL_COLS = ["Education", "Race", "Gender", "smoking"]
+# IMPORTANT: these are treated as categorical inside the training pipeline
+forced_cats = {"Gender", "Race", "Education", "smoking"}
 
 
 def compute_poverty_threshold(household_size: int) -> int:
@@ -137,7 +127,7 @@ if HAVE_NHANES_SIM:
 
     # ---------- recode / clean categorical variables ----------
 
-    # Race (RIDRETH3-like -> 4-category scheme)
+    # Race (RIDRETH3 -> 4-category scheme)
     # 1 = Mexican American
     # 2 = Other Hispanic
     # 3 = Non-Hispanic White
@@ -155,11 +145,11 @@ if HAVE_NHANES_SIM:
 
         nhanes_sim["Race"] = race_recode
 
-    # Smoking: standardize to 0/1 if present
+    # Smoking: original file had 1/2; standardize to 0/1
     if "smoking" in nhanes_sim.columns:
         sm_raw = pd.to_numeric(nhanes_sim["smoking"], errors="coerce").astype("Int64")
         sm_clean = pd.Series(np.nan, index=nhanes_sim.index, dtype="float")
-        # assume 1 = non-smoker, 2 = smoker; 0 and others -> NaN
+        # assume 1 = non-smoker, 2 = smoker
         sm_clean[sm_raw == 1] = 0
         sm_clean[sm_raw == 2] = 1
         nhanes_sim["smoking"] = sm_clean
@@ -171,8 +161,8 @@ if HAVE_NHANES_SIM:
         edu_clean[edu_raw.isin([1, 2, 3, 4, 5])] = edu_raw[edu_raw.isin([1, 2, 3, 4, 5])]
         nhanes_sim["Education"] = edu_clean
 
-    # Force numeric for numeric-like cols only
-    for col in NUMERIC_COLS:
+    # Force all feature cols to numeric (strings/blanks -> NaN)
+    for col in FEATURE_COLS:
         if col in nhanes_sim.columns:
             nhanes_sim[col] = pd.to_numeric(nhanes_sim[col], errors="coerce")
 
@@ -195,38 +185,45 @@ if HAVE_NHANES_SIM:
     if core_cols:
         nhanes_sim = nhanes_sim.dropna(subset=core_cols)
 
-    # Precompute means for numeric imputation only
-    numeric_for_mean = [c for c in NUMERIC_COLS if c in nhanes_sim.columns]
-    nhanes_means = nhanes_sim[numeric_for_mean].mean(numeric_only=True)
+    # Precompute means ONLY for numeric predictors
+    numeric_for_mean = [c for c in FEATURE_COLS if c not in forced_cats]
+    existing_cols = [c for c in numeric_for_mean if c in nhanes_sim.columns]
+    nhanes_means = nhanes_sim[existing_cols].mean(numeric_only=True)
 else:
     nhanes_means = pd.Series(dtype=float)
 
 
 def prepare_for_model(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Ensure the dataframe has all feature columns, coerce NUMERIC_COLS to numeric and
-    impute missing numeric values with NHANES means (or column mean fallback).
-    CATEGORICAL_COLS are passed through raw (with NaNs) so the model pipeline
-    can impute with most_frequent and one-hot encode, exactly as in training.
+    Ensure the dataframe has all feature columns, coerce to numeric, and
+    impute missing values ONLY for numeric predictors.
+
+    Categorical predictors (Gender, Race, Education, smoking) are left
+    as their NHANES integer codes with NaNs; the model pipeline will
+    impute their modes internally (SimpleImputer(strategy="most_frequent")
+    inside the joblib).
     """
     df = df.copy()
 
-    # Ensure all feature columns exist
+    # ensure all feature columns exist and are numeric
     for col in FEATURE_COLS:
         if col not in df.columns:
             df[col] = np.nan
-
-    # Numeric columns: coerce + impute
-    for col in NUMERIC_COLS:
         df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    num_cols = [c for c in FEATURE_COLS if c not in forced_cats]
+    cat_cols = [c for c in FEATURE_COLS if c in forced_cats]
+
+    # numeric: impute with NHANES means
+    for col in num_cols:
         mean_val = nhanes_means.get(col, df[col].mean())
         df[col] = df[col].fillna(mean_val)
 
-    # Categorical columns: DO NOT impute here; just leave values/NaNs as-is
-    # (the joblib pipeline handles cat imputation & encoding)
-    # We only ensure they exist; types can be int/float/object, all fine for OHE.
+    # categorical: DO NOT mean-impute; leave as codes/NaNs
+    # (optional: round to nearest integer just in case)
+    for col in cat_cols:
+        df[col] = df[col].round()
 
-    # Keep columns in the exact order expected by the model
     return df[FEATURE_COLS].copy()
 
 
