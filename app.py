@@ -142,18 +142,23 @@ else:
 def prepare_for_model(df: pd.DataFrame) -> pd.DataFrame:
     """Ensure the dataframe has all feature columns and impute missing numeric values."""
     df = df.copy()
-    # add missing feature columns, if any
+
+    # Ensure all feature columns exist
     for col in FEATURE_COLS:
         if col not in df.columns:
             df[col] = np.nan
 
-    # Impute numeric columns using NHANES means if available
+    # Coerce everything to numeric and impute
     for col in FEATURE_COLS:
-        if df[col].dtype.kind in "biufc":  # numeric
-            mean_val = nhanes_means.get(col, df[col].mean())
-            df[col] = df[col].fillna(mean_val)
+        # 1) coerce to numeric, turning things like ' ' into NaN
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    return df[FEATURE_COLS].copy()
+        # 2) impute with NHANES mean if available, otherwise column mean
+        mean_val = nhanes_means.get(col, df[col].mean())
+        df[col] = df[col].fillna(mean_val)
+
+    # Make sure the model sees only the feature columns in a clean numeric frame
+    return df[FEATURE_COLS].astype(float).copy()
 
 
 # ===========================
