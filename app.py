@@ -220,7 +220,6 @@ def prepare_for_model(df: pd.DataFrame) -> pd.DataFrame:
         df[col] = df[col].fillna(mean_val)
 
     # categorical: DO NOT mean-impute; leave as codes/NaNs
-    # (optional: round to nearest integer just in case)
     for col in cat_cols:
         df[col] = df[col].round()
 
@@ -350,6 +349,9 @@ with tab_research:
         "diabetes, CKD, and CVD. All calculations use the same non-laboratory "
         "models as the main risk calculator."
     )
+
+    # Optional: debug toggle for printed output
+    debug_mode = st.checkbox("Enable debug output (shows internal tables)", value=False)
 
     # ---------------- Baseline profile for 1D/2D tools ----------------
     st.subheader("Baseline profile (held constant for sensitivity analyses)")
@@ -673,6 +675,9 @@ with tab_research:
 
                 pop_df[col] = col_numeric
 
+            if debug_mode:
+                st.write("DEBUG: pop_df head", pop_df.head())
+
             # ----- build baseline feature matrix from raw pop_df -----
             base_X = prepare_for_model(pop_df)
             b_diab, b_ckd, b_cvd = predict_three(base_X)
@@ -692,6 +697,11 @@ with tab_research:
 
             scen_X = prepare_for_model(scenario_df)
             i_diab, i_ckd, i_cvd = predict_three(scen_X)
+
+            if debug_mode:
+                st.write("DEBUG: scenario_df head", scenario_df.head())
+                st.write("DEBUG: cat_overrides", cat_overrides)
+                st.write("DEBUG: numeric_deltas", numeric_deltas)
 
             # ---------- overall summary ----------
             overall = pd.DataFrame({
@@ -747,43 +757,48 @@ with tab_research:
             # ---------- subgroup summary ----------
             st.markdown(f"**Subgroup effects by {strat_option}**")
 
-            # build subgroup labels from *baseline* raw codes in pop_df
+            # Decide which dataframe to use for subgroup labels:
+            # - If stratifying on a variable we changed, use scenario_df
+            # - Otherwise, use pop_df (baseline codes)
+            if strat_option in cat_overrides or strat_option in numeric_deltas:
+                subgroup_source = scenario_df
+            else:
+                subgroup_source = pop_df
+
+            # build subgroup labels
             if strat_option == "AgeYears (binned)":
-                if "AgeYears" in pop_df.columns:
-                    subgroup_series = pd.cut(
-                        pop_df["AgeYears"],
-                        bins=[0, 40, 60, 200],
-                        labels=["<40", "40–59", "≥60"]
-                    )
-                else:
-                    subgroup_series = pd.Series(["All"] * pop_df.shape[0])
+                subgroup_series = pd.cut(
+                    subgroup_source["AgeYears"],
+                    bins=[0, 40, 60, 200],
+                    labels=["<40", "40–59", "≥60"]
+                )
+
             elif strat_option == "bmi (binned)":
-                if "bmi" in pop_df.columns:
-                    subgroup_series = pd.cut(
-                        pop_df["bmi"],
-                        bins=[0, 25, 30, 100],
-                        labels=["<25", "25–29.9", "≥30"]
-                    )
-                else:
-                    subgroup_series = pd.Series(["All"] * pop_df.shape[0])
+                subgroup_series = pd.cut(
+                    subgroup_source["bmi"],
+                    bins=[0, 25, 30, 100],
+                    labels=["<25", "25–29.9", "≥30"]
+                )
+
             else:
                 col_name = strat_option
-                if col_name not in pop_df.columns:
-                    subgroup_series = pd.Series(["All"] * pop_df.shape[0])
+                codes = subgroup_source[col_name]
+
+                if col_name == "Gender":
+                    subgroup_series = codes.map(gender_inv_map).fillna("Unknown")
+                elif col_name == "Race":
+                    subgroup_series = codes.map(race_inv_map).fillna("Unknown")
+                elif col_name == "Education":
+                    subgroup_series = codes.map(education_inv_map).fillna("Unknown")
+                elif col_name == "smoking":
+                    subgroup_series = codes.map(smoke_inv_map).fillna("Unknown")
+                elif col_name == "activity_level":
+                    subgroup_series = codes.map(activity_inv_map).fillna("Unknown")
                 else:
-                    codes = pop_df[col_name]
-                    if col_name == "Gender":
-                        subgroup_series = codes.map(gender_inv_map).fillna("Unknown")
-                    elif col_name == "Race":
-                        subgroup_series = codes.map(race_inv_map).fillna("Unknown")
-                    elif col_name == "Education":
-                        subgroup_series = codes.map(education_inv_map).fillna("Unknown")
-                    elif col_name == "smoking":
-                        subgroup_series = codes.map(smoke_inv_map).fillna("Unknown")
-                    elif col_name == "activity_level":
-                        subgroup_series = codes.map(activity_inv_map).fillna("Unknown")
-                    else:
-                        subgroup_series = codes.astype(str)
+                    subgroup_series = codes.astype(str)
+
+            if debug_mode:
+                st.write("DEBUG: subgroup value counts", subgroup_series.value_counts(dropna=False))
 
             df_sub = pd.DataFrame({
                 "Subgroup": subgroup_series,
