@@ -8,16 +8,17 @@ from plotly.subplots import make_subplots
 
 
 # ===========================
-# Global plotting style for high-res exports  🔍  NEW
+# Global plotting style for high-res exports
 # ===========================
 PLOTLY_DOWNLOAD_CONFIG = {
     "toImageButtonOptions": {
         "format": "png",
         # scale multiplies pixel resolution of the on-screen figure
-        # scale=5 → if the chart is 1000×600 px in browser, download is 5000×3000 px
+        # scale=5 → if the chart is 1100×650 px in browser, download is 5500×3250 px
         "scale": 5,
     }
 }
+
 
 def style_plotly_pub(fig, width=1100, height=650,
                      title_size=26, axis_title_size=22,
@@ -420,7 +421,7 @@ with tab_calc:
         st.markdown("- Inputs mirror NHANES preprocessing pipeline")
 
     # ---------------------------
-    # B. Individual sensitivity analysis (lightly edited)
+    # B. Individual sensitivity analysis
     # ---------------------------
     with tab_indiv_sens:
         st.title("Individual sensitivity analysis")
@@ -475,19 +476,20 @@ with tab_calc:
 
         s_diab, s_ckd, s_cvd = predict_three(sens_X)
 
+        # convert to % risk for display
         sens_df = pd.DataFrame({
             "Value": vals,
-            "Diabetes": s_diab,
-            "CKD": s_ckd,
-            "CVD": s_cvd,
-        }).melt("Value", var_name="Disease", value_name="Risk")
+            "Diabetes": s_diab * 100.0,
+            "CKD": s_ckd * 100.0,
+            "CVD": s_cvd * 100.0,
+        }).melt("Value", var_name="Disease", value_name="Risk_pct")
 
         sens_chart = (
             alt.Chart(sens_df)
-            .mark_line()
+            .mark_line(size=3)
             .encode(
                 x=alt.X("Value:Q", title=sens_label_indiv),
-                y=alt.Y("Risk:Q", title="Predicted risk"),
+                y=alt.Y("Risk_pct:Q", title="Predicted risk (%)"),
                 color=alt.Color("Disease:N", title=None),
             )
         )
@@ -544,9 +546,10 @@ with tab_calc:
 
         h_diab, h_ckd, h_cvd = predict_three(grid_X)
 
-        z_diab = h_diab.reshape(n_y, n_x)
-        z_ckd = h_ckd.reshape(n_y, n_x)
-        z_cvd = h_cvd.reshape(n_y, n_x)
+        # convert to % risk
+        z_diab = h_diab.reshape(n_y, n_x) * 100.0
+        z_ckd = h_ckd.reshape(n_y, n_x) * 100.0
+        z_cvd = h_cvd.reshape(n_y, n_x) * 100.0
 
         max_risk = float(max(z_diab.max(), z_ckd.max(), z_cvd.max()))
 
@@ -568,7 +571,12 @@ with tab_calc:
             )
 
         fig_heat.update_layout(
-            coloraxis=dict(colorscale="Viridis", cmin=0.0, cmax=max_risk),
+            coloraxis=dict(
+                colorscale="Viridis",
+                cmin=0.0,
+                cmax=max_risk,
+                colorbar=dict(title="% risk")
+            ),
             margin=dict(l=40, r=40, t=40, b=40),
         )
 
@@ -980,42 +988,57 @@ with tab_research:
             var_col, vmin, vmax, n_points = pop_var_options[pop_sens_label]
             vals = np.linspace(vmin, vmax, n_points)
 
-            mean_diab = []
-            mean_ckd = []
-            mean_cvd = []
-
+            # store mean and CI for each disease
+            rows = []
             for v in vals:
                 X_mod = base_X_pop.copy()
                 X_mod[var_col] = v
                 p_d, p_k, p_c = predict_three(X_mod)
-                mean_diab.append(p_d.mean())
-                mean_ckd.append(p_k.mean())
-                mean_cvd.append(p_c.mean())
 
-            pop_sens_df = pd.DataFrame({
-                "Value": vals,
-                "Diabetes": mean_diab,
-                "CKD": mean_ckd,
-                "CVD": mean_cvd,
-            }).melt("Value", var_name="Disease", value_name="Mean_risk")
+                for disease_name, arr in zip(
+                    ["Diabetes", "CKD", "CVD"],
+                    [p_d, p_k, p_c]
+                ):
+                    vals_pct = arr * 100.0
+                    mean = float(vals_pct.mean())
+                    # within-population variance → CI of mean
+                    se = float(vals_pct.std(ddof=1) / np.sqrt(len(vals_pct)))
+                    ci_low = mean - 1.96 * se
+                    ci_high = mean + 1.96 * se
 
-            pop_sens_chart = (
-                alt.Chart(pop_sens_df)
-                .mark_line()
-                .encode(
-                    x=alt.X("Value:Q", title=pop_sens_label),
-                    y=alt.Y("Mean_risk:Q", title="Mean predicted risk in population"),
-                    color=alt.Color("Disease:N", title=None),
-                )
+                    rows.append({
+                        "Value": v,
+                        "Disease": disease_name,
+                        "Mean_risk_pct": mean,
+                        "CI_low": ci_low,
+                        "CI_high": ci_high,
+                    })
+
+            pop_sens_df = pd.DataFrame(rows)
+
+            base = alt.Chart(pop_sens_df).encode(
+                x=alt.X("Value:Q", title=pop_sens_label),
+                color=alt.Color("Disease:N", title=None),
             )
-            pop_sens_chart = style_altair_pub(pop_sens_chart)
+
+            band = base.mark_area(opacity=0.15).encode(
+                y="CI_low:Q",
+                y2="CI_high:Q"
+            )
+
+            line = base.mark_line(size=3).encode(
+                y=alt.Y("Mean_risk_pct:Q", title="Mean predicted risk in population (%)")
+            )
+
+            pop_sens_chart = style_altair_pub(band + line)
             st.altair_chart(pop_sens_chart, use_container_width=True)
             st.caption(
                 "Curves show mean modelled risk in the synthetic population if everyone "
-                f"had the specified value of {pop_sens_label}."
+                f"had the specified value of {pop_sens_label}. Shaded ribbons are 95% CIs "
+                "for the mean risk at each value."
             )
 
-        # ------------------ Population 2D heatmaps (fixed) ------------------
+        # ------------------ Population 2D heatmaps ------------------
         if "base_X" in st.session_state:
             st.markdown("---")
             st.subheader("Population-level two-variable heatmaps")
@@ -1070,9 +1093,10 @@ with tab_research:
 
             h_diab, h_ckd, h_cvd = predict_three(grid_X)
 
-            z_diab = h_diab.reshape(n_grid, n_pop).mean(axis=1).reshape(n_y, n_x)
-            z_ckd = h_ckd.reshape(n_grid, n_pop).mean(axis=1).reshape(n_y, n_x)
-            z_cvd = h_cvd.reshape(n_grid, n_pop).mean(axis=1).reshape(n_y, n_x)
+            # convert to % risk and average across population
+            z_diab = (h_diab.reshape(n_grid, n_pop).mean(axis=1).reshape(n_y, n_x)) * 100.0
+            z_ckd = (h_ckd.reshape(n_grid, n_pop).mean(axis=1).reshape(n_y, n_x)) * 100.0
+            z_cvd = (h_cvd.reshape(n_grid, n_pop).mean(axis=1).reshape(n_y, n_x)) * 100.0
 
             max_risk = float(max(z_diab.max(), z_ckd.max(), z_cvd.max()))
 
@@ -1094,7 +1118,12 @@ with tab_research:
                 )
 
             fig_heat_pop.update_layout(
-                coloraxis=dict(colorscale="Viridis", cmin=0.0, cmax=max_risk),
+                coloraxis=dict(
+                    colorscale="Viridis",
+                    cmin=0.0,
+                    cmax=max_risk,
+                    colorbar=dict(title="% risk")
+                ),
                 margin=dict(l=40, r=40, t=40, b=40),
             )
 
