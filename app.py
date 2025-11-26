@@ -1452,8 +1452,19 @@ with tab_research:
                 default_x=pop_heat_x_label,
                 default_y=pop_heat_y_label,
             )
+            
+            # 🔧 Re-apply single shared axis titles so they don’t repeat on all 3 panels
+            fig_heat_pop.update_xaxes(title_text="", row=1, col=1)
+            fig_heat_pop.update_xaxes(title_text=pop_heat_x_label, row=1, col=2)
+            fig_heat_pop.update_xaxes(title_text="", row=1, col=3)
+            
+            fig_heat_pop.update_yaxes(title_text=pop_heat_y_label, row=1, col=1)
+            fig_heat_pop.update_yaxes(title_text="", row=1, col=2)
+            fig_heat_pop.update_yaxes(title_text="", row=1, col=3)
+            
             st.plotly_chart(fig_heat_pop, use_container_width=True,
                             config=PLOTLY_DOWNLOAD_CONFIG)
+
 
             st.caption(
                 "Heatmaps show mean predicted risk in the synthetic population if everyone "
