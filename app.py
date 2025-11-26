@@ -8,6 +8,50 @@ from plotly.subplots import make_subplots
 
 
 # ===========================
+# Global plotting style for high-res exports  🔍  NEW
+# ===========================
+PLOTLY_DOWNLOAD_CONFIG = {
+    "toImageButtonOptions": {
+        "format": "png",
+        # scale multiplies pixel resolution of the on-screen figure
+        # scale=5 → if the chart is 1000×600 px in browser, download is 5000×3000 px
+        "scale": 5,
+    }
+}
+
+def style_plotly_pub(fig, width=1100, height=650,
+                     title_size=26, axis_title_size=22,
+                     tick_size=18, legend_size=18):
+    """Apply publication-style fonts and fixed canvas size to a Plotly figure."""
+    fig.update_layout(
+        width=width,
+        height=height,
+        font=dict(size=tick_size),
+        title_font=dict(size=title_size),
+        legend=dict(font=dict(size=legend_size)),
+    )
+    fig.update_xaxes(title_font=dict(size=axis_title_size),
+                     tickfont=dict(size=tick_size))
+    fig.update_yaxes(title_font=dict(size=axis_title_size),
+                     tickfont=dict(size=tick_size))
+    return fig
+
+
+def style_altair_pub(chart, title=None, width=900, height=500):
+    """Make Altair charts big with larger fonts so their PNG exports look good."""
+    if title is not None:
+        chart = chart.properties(title=title)
+    chart = chart.properties(width=width, height=height)
+    chart = (
+        chart
+        .configure_axis(labelFontSize=16, titleFontSize=18)
+        .configure_legend(labelFontSize=16, titleFontSize=18)
+        .configure_title(fontSize=22)
+    )
+    return chart
+
+
+# ===========================
 # Load trained models
 # ===========================
 pipe_diab = joblib.load("diabetes_model.joblib")
@@ -230,11 +274,6 @@ def prepare_for_model(df: pd.DataFrame) -> pd.DataFrame:
     """
     Ensure the dataframe has all feature columns, coerce to numeric, and
     impute missing values ONLY for numeric predictors.
-
-    Categorical predictors (Gender, Race, Education, smoking) are left
-    as their NHANES integer codes with NaNs; the model pipeline will
-    impute their modes internally (SimpleImputer(strategy="most_frequent")
-    inside the joblib).
     """
     df = df.copy()
 
@@ -390,10 +429,9 @@ with tab_calc:
             "‘Individual risk calculator’ tab above as the baseline individual."
         )
 
-        # --- build baseline profile directly from calculator inputs ---
         baseline_df = build_feature_df(
             bmi=bmi, age=age, waist=waist,
-            activity_label=activity,  # from calculator
+            activity_label=activity,
             smoker_label=smoker,
             sbp=sbp, dbp=dbp, hr=hr,
             income_ratio=income_ratio,
@@ -452,9 +490,8 @@ with tab_calc:
                 y=alt.Y("Risk:Q", title="Predicted risk"),
                 color=alt.Color("Disease:N", title=None),
             )
-            .properties(height=300)
         )
-
+        sens_chart = style_altair_pub(sens_chart)
         st.altair_chart(sens_chart, use_container_width=True)
         st.caption("Curves vary one predictor for your current profile, holding all others fixed.")
 
@@ -478,7 +515,7 @@ with tab_calc:
             heat_x_label_indiv = st.selectbox(
                 "X-axis variable",
                 list(two_d_var_options_indiv.keys()),
-                index=3,  # default SBP
+                index=3,
                 key="indiv_heat_x"
             )
         with colH2:
@@ -493,8 +530,8 @@ with tab_calc:
         (x_col, x_min, x_max) = two_d_var_options_indiv[heat_x_label_indiv]
         (y_col, y_min, y_max) = two_d_var_options_indiv[heat_y_label_indiv]
 
-        n_x = st.slider("Resolution (X)", 3, 15, 25, key="indiv_nx_heat")
-        n_y = st.slider("Resolution (Y)", 3, 15, 25, key="indiv_ny_heat")
+        n_x = st.slider("Resolution (X)", 5, 40, 20, key="indiv_nx_heat")
+        n_y = st.slider("Resolution (Y)", 5, 40, 20, key="indiv_ny_heat")
 
         x_vals = np.linspace(x_min, x_max, n_x)
         y_vals = np.linspace(y_min, y_max, n_y)
@@ -535,13 +572,14 @@ with tab_calc:
             margin=dict(l=40, r=40, t=40, b=40),
         )
 
-        # Axis titles
         fig_heat.update_xaxes(title_text=heat_x_label_indiv, row=1, col=2)
         fig_heat.update_yaxes(title_text=heat_y_label_indiv, row=1, col=1)
         for c in [2, 3]:
             fig_heat.update_yaxes(showticklabels=False, row=1, col=c)
 
-        st.plotly_chart(fig_heat, use_container_width=True)
+        fig_heat = style_plotly_pub(fig_heat)
+        st.plotly_chart(fig_heat, use_container_width=True,
+                        config=PLOTLY_DOWNLOAD_CONFIG)
         st.caption(
             "Heatmaps show predicted risk for your current profile across a 2D grid "
             "of values for the selected predictors."
@@ -774,12 +812,13 @@ with tab_research:
                     )
                 ]
             )
-            st.plotly_chart(fig_change, use_container_width=True)
+            fig_change = style_plotly_pub(fig_change)
+            st.plotly_chart(fig_change, use_container_width=True,
+                            config=PLOTLY_DOWNLOAD_CONFIG)
 
             # ---------- subgroup summary ----------
             st.markdown(f"**Subgroup data prepared for stratification by {strat_option}**")
 
-            # build subgroup labels from *baseline* raw codes in pop_df
             if strat_option == "AgeYears (binned)":
                 if "AgeYears" in pop_df.columns:
                     subgroup_series = pd.cut(
@@ -827,7 +866,6 @@ with tab_research:
                 "i_cvd": i_cvd,
             })
 
-            # stash for later plotting without re-running simulation
             st.session_state["df_sub"] = df_sub
             st.session_state["strat_option"] = strat_option
             st.session_state["base_X"] = base_X
@@ -904,7 +942,9 @@ with tab_research:
                 margin=dict(l=40, r=40, t=80, b=80),
             )
 
-            st.plotly_chart(fig_sub, use_container_width=True)
+            fig_sub = style_plotly_pub(fig_sub)
+            st.plotly_chart(fig_sub, use_container_width=True,
+                            config=PLOTLY_DOWNLOAD_CONFIG)
 
             st.caption(
                 (
@@ -967,9 +1007,8 @@ with tab_research:
                     y=alt.Y("Mean_risk:Q", title="Mean predicted risk in population"),
                     color=alt.Color("Disease:N", title=None),
                 )
-                .properties(height=300)
             )
-
+            pop_sens_chart = style_altair_pub(pop_sens_chart)
             st.altair_chart(pop_sens_chart, use_container_width=True)
             st.caption(
                 "Curves show mean modelled risk in the synthetic population if everyone "
@@ -981,13 +1020,11 @@ with tab_research:
             st.markdown("---")
             st.subheader("Population-level two-variable heatmaps")
 
-            # Use a subset of the synthetic population to control memory
             base_X_pop_full = st.session_state["base_X"]
             n_pop_total = base_X_pop_full.shape[0]
-            subset_n = min(500, n_pop_total)  # cap at 500 people
+            subset_n = min(500, n_pop_total)
             base_X_pop = base_X_pop_full.sample(subset_n, random_state=seed).reset_index(drop=True)
             n_pop = base_X_pop.shape[0]
-
 
             pop_two_d_var_options = {
                 "Age (years)": ("AgeYears", 20, 85),
@@ -1025,18 +1062,14 @@ with tab_research:
             x_vals = np.linspace(x_min, x_max, n_x)
             y_vals = np.linspace(y_min, y_max, n_y)
             X_grid, Y_grid = np.meshgrid(x_vals, y_vals)
-            n_grid = X_grid.size  # n_x * n_y
+            n_grid = X_grid.size
 
-            # replicate population for each grid point
             grid_X = pd.concat([base_X_pop] * n_grid, ignore_index=True)
-
-            # repeat each grid coordinate for every person in the population
             grid_X[x_col] = np.repeat(X_grid.ravel(), n_pop)
             grid_X[y_col] = np.repeat(Y_grid.ravel(), n_pop)
 
             h_diab, h_ckd, h_cvd = predict_three(grid_X)
 
-            # reshape to (n_grid, n_pop) then average across population
             z_diab = h_diab.reshape(n_grid, n_pop).mean(axis=1).reshape(n_y, n_x)
             z_ckd = h_ckd.reshape(n_grid, n_pop).mean(axis=1).reshape(n_y, n_x)
             z_cvd = h_cvd.reshape(n_grid, n_pop).mean(axis=1).reshape(n_y, n_x)
@@ -1070,7 +1103,9 @@ with tab_research:
             for c in [2, 3]:
                 fig_heat_pop.update_yaxes(showticklabels=False, row=1, col=c)
 
-            st.plotly_chart(fig_heat_pop, use_container_width=True)
+            fig_heat_pop = style_plotly_pub(fig_heat_pop)
+            st.plotly_chart(fig_heat_pop, use_container_width=True,
+                            config=PLOTLY_DOWNLOAD_CONFIG)
             st.caption(
                 "Heatmaps show mean predicted risk in the synthetic population if everyone "
                 "had the specified pair of values for the two selected variables."
