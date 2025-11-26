@@ -980,8 +980,13 @@ with tab_research:
             st.markdown("---")
             st.subheader("Population-level two-variable heatmaps")
 
-            base_X_pop = st.session_state["base_X"]
+            # Use a subset of the synthetic population to control memory
+            base_X_pop_full = st.session_state["base_X"]
+            n_pop_total = base_X_pop_full.shape[0]
+            subset_n = min(500, n_pop_total)  # cap at 500 people
+            base_X_pop = base_X_pop_full.sample(subset_n, random_state=seed).reset_index(drop=True)
             n_pop = base_X_pop.shape[0]
+
 
             pop_two_d_var_options = {
                 "Age (years)": ("AgeYears", 20, 85),
