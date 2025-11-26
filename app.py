@@ -6,6 +6,15 @@ import altair as alt
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+# ===========================
+# Global colour palette & styles
+# ===========================
+COLOR_DIAB = "#d62728"      # Diabetes – red
+COLOR_CKD = "#1f77b4"       # CKD – dark blue
+COLOR_CVD = "#4da6ff"       # CVD – light blue
+COLOR_BAR = "#1f77b4"       # Default bar colour
+GRID_COLOR = "rgba(0,0,0,0.08)"
+ZERO_LINE_COLOR = "rgba(80,80,80,0.85)"
 
 # ===========================
 # Global plotting style for high-res exports
@@ -21,33 +30,55 @@ PLOTLY_DOWNLOAD_CONFIG = {
 
 
 def style_plotly_pub(fig, width=1100, height=650,
-                     title_size=26, axis_title_size=22,
-                     tick_size=18, legend_size=18):
-    """Apply publication-style fonts and fixed canvas size to a Plotly figure."""
+                     title_size=30, axis_title_size=24,
+                     tick_size=20, legend_size=20):
+    """Apply publication-style fonts, margins, and subtle grids to a Plotly figure."""
     fig.update_layout(
         width=width,
         height=height,
         font=dict(size=tick_size),
-        title_font=dict(size=title_size),
+        title=dict(
+            font=dict(size=title_size),
+            x=0.0,
+            xanchor="left"
+        ),
         legend=dict(font=dict(size=legend_size)),
+        margin=dict(l=60, r=20, t=70, b=60),
     )
-    fig.update_xaxes(title_font=dict(size=axis_title_size),
-                     tickfont=dict(size=tick_size))
-    fig.update_yaxes(title_font=dict(size=axis_title_size),
-                     tickfont=dict(size=tick_size))
+    fig.update_xaxes(
+        title_font=dict(size=axis_title_size),
+        tickfont=dict(size=tick_size),
+        showgrid=True,
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+    )
+    fig.update_yaxes(
+        title_font=dict(size=axis_title_size),
+        tickfont=dict(size=tick_size),
+        showgrid=True,
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+    )
     return fig
 
 
 def style_altair_pub(chart, title=None, width=900, height=500):
-    """Make Altair charts big with larger fonts so their PNG exports look good."""
+    """Make Altair charts big, with larger fonts and faint grids for export."""
     if title is not None:
         chart = chart.properties(title=title)
     chart = chart.properties(width=width, height=height)
     chart = (
         chart
-        .configure_axis(labelFontSize=16, titleFontSize=18)
-        .configure_legend(labelFontSize=16, titleFontSize=18)
-        .configure_title(fontSize=22)
+        .configure_axis(
+            labelFontSize=18,
+            titleFontSize=20,
+            grid=True,
+            gridColor="#000000",
+            gridOpacity=0.08,
+        )
+        .configure_legend(labelFontSize=18, titleFontSize=20)
+        .configure_title(fontSize=24, anchor="start")
+        .configure_view(strokeWidth=0)
     )
     return chart
 
@@ -490,10 +521,20 @@ with tab_calc:
             .encode(
                 x=alt.X("Value:Q", title=sens_label_indiv),
                 y=alt.Y("Risk_pct:Q", title="Predicted risk (%)"),
-                color=alt.Color("Disease:N", title=None),
+                color=alt.Color(
+                    "Disease:N",
+                    title=None,
+                    scale=alt.Scale(
+                        domain=["Diabetes", "CKD", "CVD"],
+                        range=[COLOR_DIAB, COLOR_CKD, COLOR_CVD],
+                    ),
+                ),
             )
         )
-        sens_chart = style_altair_pub(sens_chart)
+        sens_chart = style_altair_pub(
+            sens_chart,
+            title=f"Individual sensitivity to {sens_label_indiv}"
+        )
         st.altair_chart(sens_chart, use_container_width=True)
         st.caption("Curves vary one predictor for your current profile, holding all others fixed.")
 
@@ -571,13 +612,17 @@ with tab_calc:
             )
 
         fig_heat.update_layout(
+            title=(
+                f"Predicted risk (%) across {heat_x_label_indiv} "
+                f"and {heat_y_label_indiv} for current individual"
+            ),
             coloraxis=dict(
                 colorscale="Viridis",
                 cmin=0.0,
                 cmax=max_risk,
-                colorbar=dict(title="% risk")
+                colorbar=dict(title="Predicted risk (%)")
             ),
-            margin=dict(l=40, r=40, t=40, b=40),
+            margin=dict(l=60, r=40, t=80, b=60),
         )
 
         fig_heat.update_xaxes(title_text=heat_x_label_indiv, row=1, col=2)
@@ -799,24 +844,27 @@ with tab_research:
                 go.Bar(
                     x=overall["Disease"],
                     y=rel_vals,
+                    marker=dict(color=COLOR_BAR),
                     error_y=dict(
                         type="data",
                         array=err_plus,
                         arrayminus=err_minus,
                         visible=True,
+                        thickness=1.5,
                     ),
                 )
             )
             fig_change.update_layout(
-                yaxis_title="Relative change in mean risk (%)",
+                title="Overall relative change in mean predicted risk",
+                yaxis_title="Relative change in mean predicted risk (%)",
                 xaxis_title="Disease",
-                margin=dict(l=40, r=40, t=40, b=40),
+                margin=dict(l=60, r=20, t=80, b=60),
                 shapes=[
                     dict(
                         type="line",
                         x0=-0.5, x1=2.5,
                         y0=0, y1=0,
-                        line=dict(color="grey", dash="dash")
+                        line=dict(color=ZERO_LINE_COLOR, dash="dash", width=2),
                     )
                 ]
             )
@@ -934,21 +982,35 @@ with tab_research:
                 go.Bar(
                     x=sub_df["Subgroup"],
                     y=rel_vals,
+                    marker=dict(color=COLOR_BAR),
                     error_y=dict(
                         type="data",
                         array=err_plus,
                         arrayminus=err_minus,
                         visible=True,
+                        thickness=1.5,
                     ),
                 )
             )
 
             fig_sub.update_layout(
+                title=f"Subgroup-specific relative change in mean risk for {disease_choice}",
                 barmode="group",
                 xaxis_title=f"{strat_label} subgroup",
                 yaxis_title=f"Relative change in mean risk for {disease_choice} (%)",
-                margin=dict(l=40, r=40, t=80, b=80),
+                margin=dict(l=60, r=20, t=90, b=90),
+                shapes=[
+                    dict(
+                        type="line",
+                        x0=-0.5,
+                        x1=len(sub_df["Subgroup"]) - 0.5,
+                        y0=0,
+                        y1=0,
+                        line=dict(color=ZERO_LINE_COLOR, dash="dash", width=2),
+                    )
+                ],
             )
+            fig_sub.update_xaxes(tickangle=30)
 
             fig_sub = style_plotly_pub(fig_sub)
             st.plotly_chart(fig_sub, use_container_width=True,
@@ -1016,21 +1078,31 @@ with tab_research:
 
             pop_sens_df = pd.DataFrame(rows)
 
-            base = alt.Chart(pop_sens_df).encode(
+            base_chart = alt.Chart(pop_sens_df).encode(
                 x=alt.X("Value:Q", title=pop_sens_label),
-                color=alt.Color("Disease:N", title=None),
+                color=alt.Color(
+                    "Disease:N",
+                    title=None,
+                    scale=alt.Scale(
+                        domain=["Diabetes", "CKD", "CVD"],
+                        range=[COLOR_DIAB, COLOR_CKD, COLOR_CVD],
+                    ),
+                ),
             )
 
-            band = base.mark_area(opacity=0.15).encode(
+            band = base_chart.mark_area(opacity=0.15).encode(
                 y="CI_low:Q",
                 y2="CI_high:Q"
             )
 
-            line = base.mark_line(size=3).encode(
+            line = base_chart.mark_line(size=3).encode(
                 y=alt.Y("Mean_risk_pct:Q", title="Mean predicted risk in population (%)")
             )
 
-            pop_sens_chart = style_altair_pub(band + line)
+            pop_sens_chart = style_altair_pub(
+                band + line,
+                title=f"Population mean predicted risk vs {pop_sens_label}"
+            )
             st.altair_chart(pop_sens_chart, use_container_width=True)
             st.caption(
                 "Curves show mean modelled risk in the synthetic population if everyone "
@@ -1118,13 +1190,17 @@ with tab_research:
                 )
 
             fig_heat_pop.update_layout(
+                title=(
+                    f"Mean predicted risk (%) across {pop_heat_x_label} and "
+                    f"{pop_heat_y_label} in synthetic population"
+                ),
                 coloraxis=dict(
                     colorscale="Viridis",
                     cmin=0.0,
                     cmax=max_risk,
-                    colorbar=dict(title="% risk")
+                    colorbar=dict(title="Mean predicted risk (%)"),
                 ),
-                margin=dict(l=40, r=40, t=40, b=40),
+                margin=dict(l=60, r=40, t=80, b=60),
             )
 
             fig_heat_pop.update_xaxes(title_text=pop_heat_x_label, row=1, col=2)
