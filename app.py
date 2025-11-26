@@ -16,6 +16,15 @@ COLOR_BAR = "#1f77b4"       # Default bar colour
 GRID_COLOR = "rgba(0,0,0,0.08)"
 ZERO_LINE_COLOR = "rgba(80,80,80,0.85)"
 
+def hex_to_rgba(hex_color: str, alpha: float) -> str:
+    """Convert a '#rrggbb' hex color to an 'rgba(r,g,b,a)' string."""
+    hex_color = hex_color.lstrip("#")
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+    return f"rgba({r},{g},{b},{alpha})"
+
+
 # ===========================
 # Global plotting style for high-res exports
 # ===========================
@@ -1288,7 +1297,7 @@ with tab_research:
                         mode="lines",
                         line=dict(width=0),
                         fill="tonexty",
-                        fillcolor=col + "33",  # add some transparency
+                        fillcolor=hex_to_rgba(col, 0.2),  # 20% opacity
                         showlegend=False,
                         hoverinfo="skip",
                         name=f"{disease_name} CI high",
