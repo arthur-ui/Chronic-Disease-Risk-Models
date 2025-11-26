@@ -492,8 +492,8 @@ with tab_calc:
         (x_col, x_min, x_max) = two_d_var_options_indiv[heat_x_label_indiv]
         (y_col, y_min, y_max) = two_d_var_options_indiv[heat_y_label_indiv]
 
-        n_x = st.slider("Resolution (X)", 10, 60, 25, key="indiv_nx_heat")
-        n_y = st.slider("Resolution (Y)", 10, 60, 25, key="indiv_ny_heat")
+        n_x = st.slider("Resolution (X)", 3, 15, 25, key="indiv_nx_heat")
+        n_y = st.slider("Resolution (Y)", 3, 15, 25, key="indiv_ny_heat")
 
         x_vals = np.linspace(x_min, x_max, n_x)
         y_vals = np.linspace(y_min, y_max, n_y)
