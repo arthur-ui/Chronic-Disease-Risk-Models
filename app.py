@@ -803,12 +803,17 @@ with tab_research:
             1. For exploratory analysis or usage of **up to two figures or tables** created by this model,
                you will **cite**:
 
-               **Costa, AM and Iris, BD. Nature Scientific Reviews. 2025.**
+               **Costa, AM and Iris, BD. Nature Scientific Reports. 2025.**
 
             2. For **any further use** of this tool, its outputs, or figures/tables beyond this exploratory
-               limit (including use in manuscripts, preprints, talks, or derivative tools), you agree to
+               limit (including use in manuscripts, preprints, and talks), you agree to
                **invite Arthur M. Costa (arthurcosta@uchicago.edu) as a co-author** and to discuss appropriate
-               authorship and contributions in advance.
+               authorship and contributions in advance. Arthur curated the underlying dataset, calculated derivative
+               variables, and created the following analysis tools. For methodological inquiries see 
+               (Costa, AM and Iris, BD. Nature Scientific Reports. 2025) or contact Arthur.
+
+            3. To request custom analyses, such as including laboratory predictors or multinational datasets,
+               contact Arthur M. Costa (arthurcosta@uchicago.edu) about potential collaborations. 
             """
         )
 
