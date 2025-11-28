@@ -857,7 +857,7 @@ with tab_research:
 
         colP1, colP2, colP3 = st.columns(3)
         with colP1:
-            max_n = int(min(10000, nhanes_sim.shape[0]))
+            max_n = int(min(100000, nhanes_sim.shape[0]))
             pop_n = st.slider(
                 "Population size",
                 min_value=500,
