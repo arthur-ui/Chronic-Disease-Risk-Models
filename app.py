@@ -59,28 +59,47 @@ ZERO_LINE_COLOR = "rgba(80,80,80,0.85)"
 SHEET_KEY = "1lXyGAJm5MoO_NDhdBbI6u_o0C7vCLNGfI77MPipw8c8"
 
 @st.cache_resource
+SHEET_KEY = "1lXyGAJm5MoO_NDhdBbI6u_o0C7vCLNGfI77MPipw8c8"
+
+@st.cache_resource
 def get_gsheet_worksheet():
     """
     Authorize with Google using service-account JSON stored in an env var on Render.
-    Return the first worksheet in the sheet.
+    Returns the first worksheet, or None if logging is not available.
     """
+    import os, json
+    from google.oauth2.service_account import Credentials
+    import gspread
+
+    # 1) Check env var
     service_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
     if not service_json:
-        raise RuntimeError(
-            "GOOGLE_SERVICE_ACCOUNT_JSON not found — add it as an env var in Render."
-        )
+        st.warning("Logging disabled: GOOGLE_SERVICE_ACCOUNT_JSON env var is not set.")
+        return None
 
-    service_info = json.loads(service_json)
+    # 2) Parse JSON
+    try:
+        service_info = json.loads(service_json)
+    except Exception as e:
+        st.error("Logging disabled: could not parse GOOGLE_SERVICE_ACCOUNT_JSON.")
+        st.write("Parse error:", repr(e))
+        return None
 
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
-    creds = Credentials.from_service_account_info(service_info, scopes=scopes)
+    # 3) Build credentials and open sheet
+    try:
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        creds = Credentials.from_service_account_info(service_info, scopes=scopes)
+        client = gspread.authorize(creds)
+        sh = client.open_by_key(SHEET_KEY)
+        return sh.sheet1
+    except Exception as e:
+        st.error("Logging disabled: failed to connect to Google Sheets.")
+        st.write("Connection error:", repr(e))
+        return None
 
-    client = gspread.authorize(creds)
-    sh = client.open_by_key(SHEET_KEY)
-    return sh.sheet1
 def log_individual_prediction(
     bmi, age, waist, activity_label, smoker_label,
     sbp, dbp, hr, income_ratio, education_label,
@@ -89,11 +108,15 @@ def log_individual_prediction(
 ):
     """
     Append a single anonymized row to the Google Sheet.
+    If anything goes wrong, show a detailed error but do not crash the app.
     """
     try:
         ws = get_gsheet_worksheet()
+        if ws is None:
+            # Logging not available; a warning/error was already shown by helper.
+            return
 
-        # Bin sensitive vars to further anonymize
+        # Bin vars to reduce identifiability
         def age_bin(a):
             if a < 30: return "<30"
             elif a < 45: return "30–44"
@@ -131,7 +154,10 @@ def log_individual_prediction(
         ws.append_row(row, value_input_option="USER_ENTERED")
 
     except Exception as e:
-        st.warning(f"(Logging error: {e})")
+        # Now we actually show the exception info
+        st.error("Logging error: could not append row to Google Sheet.")
+        st.write("Append error:", repr(e))
+
 
 
 
