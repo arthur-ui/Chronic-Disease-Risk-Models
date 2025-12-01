@@ -56,7 +56,6 @@ COLOR_BAR  = "#1f77b4"   # Default bar colour (optional)
 GRID_COLOR = "rgba(0,0,0,0.08)"
 ZERO_LINE_COLOR = "rgba(80,80,80,0.85)"
 
-SHEET_KEY = "1lXyGAJm5MoO_NDhdBbI6u_o0C7vCLNGfI77MPipw8c8"
 
 @st.cache_resource
 SHEET_KEY = "1lXyGAJm5MoO_NDhdBbI6u_o0C7vCLNGfI77MPipw8c8"
