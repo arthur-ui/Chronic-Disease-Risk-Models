@@ -12,6 +12,80 @@ from plotly.subplots import make_subplots
 import gspread
 from google.oauth2.service_account import Credentials
 
+# ---------- IRB-safe binning helpers ----------
+
+def bin_age(age: float) -> str:
+    if age < 30:
+        return "<30"
+    elif age < 45:
+        return "30–44"
+    elif age < 60:
+        return "45–59"
+    elif age < 75:
+        return "60–74"
+    else:
+        return "75+"
+
+def bin_bmi(bmi: float) -> str:
+    if bmi < 18.5:
+        return "<18.5"
+    elif bmi < 25:
+        return "18.5–24.9"
+    elif bmi < 30:
+        return "25–29.9"
+    else:
+        return ">=30"
+
+def bin_waist(waist_cm: float) -> str:
+    if waist_cm < 80:
+        return "<80"
+    elif waist_cm < 95:
+        return "80–94"
+    elif waist_cm < 110:
+        return "95–109"
+    else:
+        return ">=110"
+
+def bin_sbp(sbp: float) -> str:
+    if sbp < 110:
+        return "<110"
+    elif sbp < 130:
+        return "110–129"
+    elif sbp < 160:
+        return "130–159"
+    else:
+        return ">=160"
+
+def bin_dbp(dbp: float) -> str:
+    if dbp < 70:
+        return "<70"
+    elif dbp < 80:
+        return "70–79"
+    elif dbp < 90:
+        return "80–89"
+    else:
+        return ">=90"
+
+def bin_hr(hr: float) -> str:
+    if hr < 60:
+        return "<60"
+    elif hr < 75:
+        return "60–74"
+    elif hr < 90:
+        return "75–89"
+    else:
+        return ">=90"
+
+def bin_income_ratio(r: float) -> str:
+    if r < 1.0:
+        return "<1.0"
+    elif r < 2.0:
+        return "1.0–1.99"
+    elif r < 4.0:
+        return "2.0–3.99"
+    else:
+        return ">=4.0"
+
 
 # 🔧 Add this class so joblib can unpickle your models
 class CalibratedPipeline:
@@ -94,63 +168,47 @@ def log_individual_prediction(
     race_label, gender_label,
     p_diab, p_ckd, p_cvd,
 ):
-    """Append a single anonymized row to the Google Sheet.
-    If anything goes wrong, show a detailed error but do not crash the app."""
+    """
+    Append a single anonymized row to the Google Sheet.
+
+    All inputs are stored as coarse bins; only the model-predicted risks
+    are stored as exact percentages. No timestamp or direct identifiers.
+    """
     try:
         ws = get_gsheet_worksheet()
         if ws is None:
             # Logging not available; a warning/error was already shown by helper.
             return
 
-        # Bin vars to reduce identifiability
-        def age_bin(a):
-            if a < 30:
-                return "<30"
-            elif a < 45:
-                return "30–44"
-            elif a < 60:
-                return "45–59"
-            elif a < 75:
-                return "60–74"
-            else:
-                return "75+"
-
-        def bmi_bin(b):
-            if b < 18.5:
-                return "<18.5"
-            elif b < 25:
-                return "18.5–24.9"
-            elif b < 30:
-                return "25–29.9"
-            else:
-                return ">=30"
-
-        timestamp = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M")
-
         row = [
-            timestamp,
-            age_bin(age),
-            bmi_bin(bmi),
-            float(waist),
-            activity_label,
-            smoker_label,
-            float(sbp),
-            float(dbp),
-            float(hr),
-            float(income_ratio),
-            education_label,
-            race_label,
-            gender_label,
-            float(p_diab) * 100.0,
-            float(p_ckd) * 100.0,
-            float(p_cvd) * 100.0,
+            bin_age(age),                 # age_bin
+            bin_bmi(bmi),                 # bmi_bin
+            bin_waist(waist),             # waist_bin
+            activity_label,               # activity (Low/Moderate/High)
+            smoker_label,                 # smoker (Yes/No)
+            bin_sbp(sbp),                 # sbp_bin
+            bin_dbp(dbp),                 # dbp_bin
+            bin_hr(hr),                   # hr_bin
+            bin_income_ratio(income_ratio),  # income_ratio_bin
+            education_label,              # education (NHANES categories)
+            race_label,                   # race/ethnicity (4 cats)
+            gender_label,                 # gender
+            float(p_diab) * 100.0,        # diab_risk_pct
+            float(p_ckd) * 100.0,         # ckd_risk_pct
+            float(p_cvd) * 100.0,         # cvd_risk_pct
         ]
+
+        # Sheet header should be:
+        # age_bin,bmi_bin,waist_bin,activity,smoker,sbp_bin,dbp_bin,hr_bin,
+        # income_ratio_bin,education,race,gender,
+        # diab_risk_pct,ckd_risk_pct,cvd_risk_pct
 
         ws.append_row(row, value_input_option="USER_ENTERED")
 
     except Exception as e:
         st.error("Logging error: could not append row to Google Sheet.")
         st.write("Append error:", repr(e))
+
 
 
 
