@@ -50,24 +50,28 @@ ZERO_LINE_COLOR = "rgba(80,80,80,0.85)"
 SHEET_KEY = "1lXyGAJm5MoO_NDhdBbI6u_o0C7vCLNGfI77MPipw8c8"
 
 @st.cache_resource
+@st.cache_resource
 def get_gsheet_worksheet():
     """Authorize with Google using service-account JSON stored in an env var.
     Returns the first worksheet, or None if logging is not available."""
-    # 1) Check env var
     service_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
     if not service_json:
         st.warning("Logging disabled: GOOGLE_SERVICE_ACCOUNT_JSON env var is not set.")
         return None
 
-    # 2) Parse JSON
+    # Parse JSON
     try:
         service_info = json.loads(service_json)
     except Exception as e:
         st.error("Logging disabled: could not parse GOOGLE_SERVICE_ACCOUNT_JSON.")
-        st.write("Parse error:", repr(e))
+        st.exception(e)
         return None
 
-    # 3) Build credentials and open sheet
+    # Show which service account we are using (for debugging)
+    sa_email = service_info.get("client_email", "UNKNOWN")
+    st.write("Using service account:", sa_email)
+
+    # Build credentials and open sheet
     try:
         scopes = [
             "https://www.googleapis.com/auth/spreadsheets",
@@ -79,8 +83,9 @@ def get_gsheet_worksheet():
         return sh.sheet1
     except Exception as e:
         st.error("Logging disabled: failed to connect to Google Sheets.")
-        st.write("Connection error:", repr(e))
+        st.exception(e)  # shows full traceback + API error JSON
         return None
+
 
 
 def log_individual_prediction(
