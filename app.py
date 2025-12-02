@@ -778,77 +778,73 @@ with tab_calc:
         )
 
                 # ---------------- Mode: real data vs exploring (forced choice) ----------------
+        # ---------------- Mode: real data vs exploring (forced 2-choice) ----------------
         mode_choice = st.radio(
             "Are you entering your own real information, or just exploring the tool?",
             (
-                "Please select one",
                 "I'm entering my real information today",
                 "I'm just exploring / using example values",
             ),
-            index=0,
+            index=None,   # <- forces no default selection
             help="This only affects how your data are logged for research; it does not change your risk estimates."
         )
-
-        if mode_choice == "Please select one":
+        
+        # Convert selection into mode variable
+        if mode_choice is None:
             mode = None
         elif "real" in mode_choice:
             mode = "real_data"
         else:
             mode = "exploration"
 
+    
 
-                # ---------------- Mode: real data vs exploring ----------------
-        st.markdown("**How are you using the calculator today?**")
-        using_real_info = st.checkbox(
-            "I am entering my real information today",
-            value=False,
-            help="If unchecked, your entry will be logged as exploratory use."
-        )
-        mode = "real_data" if using_real_info else "exploration"
+
+       
 
         # ---------------- Predict ----------------
-                # ---------------- Predict ----------------
         if st.button("Estimate risks", key="calc_button"):
             if mode is None:
-                st.warning("Please tell us whether you're using your real information or just exploring before running the calculator.")
-            else:
-                X = build_feature_df(
-                    bmi=bmi, age=age, waist=waist, activity_label=activity,
-                    smoker_label=smoker, sbp=sbp, dbp=dbp, hr=hr,
-                    income_ratio=income_ratio, education_label=education,
-                    race_label=race, gender_label=gender
-                )
+                st.warning("Please select whether you're using real information or exploring before continuing.")
+                st.stop()
+        else:
+            X = build_feature_df(
+                bmi=bmi, age=age, waist=waist, activity_label=activity,
+                smoker_label=smoker, sbp=sbp, dbp=dbp, hr=hr,
+                income_ratio=income_ratio, education_label=education,
+                race_label=race, gender_label=gender
+            )
 
-                X_model = prepare_for_model(X)
-                p_diab, p_ckd, p_cvd = predict_three(X_model)
+            X_model = prepare_for_model(X)
+            p_diab, p_ckd, p_cvd = predict_three(X_model)
 
-                # ---- log anonymized user input + model outputs ----
-                log_individual_prediction(
-                    mode=mode,              # ✅ NEW REQUIRED ARG
-                    bmi=bmi,
-                    age=age,
-                    waist=waist,
-                    activity_label=activity,
-                    smoker_label=smoker,
-                    sbp=sbp,
-                    dbp=dbp,
-                    hr=hr,
-                    income_ratio=income_ratio,
-                    education_label=education,
-                    race_label=race,
-                    gender_label=gender,
-                    p_diab=float(p_diab[0]),
-                    p_ckd=float(p_ckd[0]),
-                    p_cvd=float(p_cvd[0]),
-                )
+            # ---- log anonymized user input + model outputs ----
+            log_individual_prediction(
+                mode=mode,              # ✅ NEW REQUIRED ARG
+                bmi=bmi,
+                age=age,
+                waist=waist,
+                activity_label=activity,
+                smoker_label=smoker,
+                sbp=sbp,
+                dbp=dbp,
+                hr=hr,
+                income_ratio=income_ratio,
+                education_label=education,
+                race_label=race,
+                gender_label=gender,
+                p_diab=float(p_diab[0]),
+                p_ckd=float(p_ckd[0]),
+                p_cvd=float(p_cvd[0]),
+            )
 
-                # ---- existing display code ----
-                r1, r2, r3 = st.columns(3)
-                r1.metric("Diabetes risk", f"{p_diab[0]*100:.1f}%")
-                r2.metric("CKD risk", f"{p_ckd[0]*100:.1f}%")
-                r3.metric("CVD risk", f"{p_cvd[0]*100:.1f}%")
+            # ---- existing display code ----
+            r1, r2, r3 = st.columns(3)
+            r1.metric("Diabetes risk", f"{p_diab[0]*100:.1f}%")
+            r2.metric("CKD risk", f"{p_ckd[0]*100:.1f}%")
+            r3.metric("CVD risk", f"{p_cvd[0]*100:.1f}%")
 
-                st.caption("These estimates are based solely on non-dietary predictors.")
+            st.caption("These estimates are based solely on non-dietary predictors.")
 
     # ---------------------------
     # B. Individual sensitivity analysis
