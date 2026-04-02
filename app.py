@@ -119,6 +119,47 @@ ZERO_LINE_COLOR = "rgba(80,80,80,0.85)"
 
 
 # ===========================
+# Country list
+# ===========================
+COUNTRY_LIST = [
+    "Prefer not to say",
+    "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda",
+    "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bahamas", "Bahrain",
+    "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan",
+    "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria",
+    "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia", "Cameroon", "Canada",
+    "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros",
+    "Congo (Brazzaville)", "Congo (Kinshasa)", "Costa Rica", "Croatia", "Cuba",
+    "Cyprus", "Czech Republic", "Denmark", "Djibouti", "Dominica",
+    "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea",
+    "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France",
+    "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada",
+    "Guatemala", "Guinea", "Guinea-Bissau", "Guyana", "Haiti", "Honduras",
+    "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland",
+    "Israel", "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya",
+    "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho",
+    "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg", "Madagascar",
+    "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands",
+    "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco",
+    "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar", "Namibia",
+    "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger",
+    "Nigeria", "North Korea", "North Macedonia", "Norway", "Oman", "Pakistan",
+    "Palau", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines",
+    "Poland", "Portugal", "Qatar", "Romania", "Russia", "Rwanda",
+    "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines",
+    "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal",
+    "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia",
+    "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan",
+    "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria",
+    "Taiwan", "Tajikistan", "Tanzania", "Thailand", "Timor-Leste", "Togo",
+    "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu",
+    "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States",
+    "Uruguay", "Uzbekistan", "Vanuatu", "Vatican City", "Venezuela", "Vietnam",
+    "Yemen", "Zambia", "Zimbabwe",
+]
+
+
+# ===========================
 # Google Sheets logging
 # ===========================
 SHEET_KEY = "1lXyGAJm5MoO_NDhdBbI6u_o0C7vCLNGfI77MPipw8c8"
@@ -142,7 +183,6 @@ def get_gsheet_worksheet():
 
     # Show which service account we are using (for debugging)
     sa_email = service_info.get("client_email", "UNKNOWN")
-    
 
     # Build credentials and open sheet
     try:
@@ -165,8 +205,9 @@ def log_individual_prediction(
     mode,  # "real_data" or "exploration"
     bmi, age, waist, activity_label, smoker_label,
     sbp, dbp, hr, income_ratio, education_label,
-    race_label, gender_label, country_label,
+    race_label, gender_label,
     p_diab, p_ckd, p_cvd,
+    country="Prefer not to say",  # NEW: country of residence
 ):
     """
     Append a single anonymized row to the Google Sheet.
@@ -178,8 +219,8 @@ def log_individual_prediction(
 
     mode,age_bin,bmi_bin,waist_bin,activity,smoker,
     sbp_bin,dbp_bin,hr_bin,income_ratio_bin,
-    education,race,gender,country,
-    diab_risk_pct,ckd_risk_pct,cvd_risk_pct
+    education,race,gender,
+    diab_risk_pct,ckd_risk_pct,cvd_risk_pct,country
     """
     try:
         ws = get_gsheet_worksheet()
@@ -201,10 +242,10 @@ def log_individual_prediction(
             education_label,             # education (NHANES categories)
             race_label,                  # race/ethnicity (4 cats)
             gender_label,                # gender
-            country_label,               # country
             float(p_diab) * 100.0,       # diab_risk_pct
             float(p_ckd) * 100.0,        # ckd_risk_pct
             float(p_cvd) * 100.0,        # cvd_risk_pct
+            country,                     # country of residence (NEW)
         ]
 
         ws.append_row(row, value_input_option="USER_ENTERED")
@@ -212,10 +253,6 @@ def log_individual_prediction(
     except Exception as e:
         st.error("Logging error: could not append row to Google Sheet.")
         st.write("Append error:", repr(e))
-
-
-
-
 
 
 def hex_to_rgba(hex_color: str, alpha: float) -> str:
@@ -403,7 +440,7 @@ race_map = {
 }
 race_inv_map = {v: k for k, v in race_map.items()}
 
-# model trained with numeric “smoking”; we use 0/1 here
+# model trained with numeric "smoking"; we use 0/1 here
 smoke_map = {"No": 0, "Yes": 1}
 smoke_inv_map = {v: k for k, v in smoke_map.items()}
 
@@ -777,10 +814,20 @@ with tab_calc:
             "Race/ethnicity",
             ["Non-Hispanic White", "Non-Hispanic Black", "Hispanic", "Other"]
         )
-        country = st.text_input("Country", value="United States")
 
-                # ---------------- Mode: real data vs exploring (forced choice) ----------------
-        # ---------------- Mode: real data vs exploring (forced 2-choice) ----------------
+        # ---------------- Country of residence ----------------
+        country = st.selectbox(
+            "Country of residence",
+            COUNTRY_LIST,
+            index=0,
+            help=(
+                "Select your country of residence. This is recorded only as a broad "
+                "geographic indicator for research purposes. Choose 'Prefer not to say' "
+                "to skip."
+            ),
+        )
+
+        # ---------------- Mode: real data vs exploring (forced choice) ----------------
         mode_choice = st.radio(
             "Are you entering your own real information, or just exploring the tool?",
             (
@@ -790,8 +837,8 @@ with tab_calc:
             index=None,   # <- forces no default selection
             help="This only affects how your data are logged for research; it does not change your risk estimates."
         )
-        
-        #Convert selection into mode variable
+
+        # Convert selection into mode variable
         if mode_choice is None:
             mode = None
         elif "real" in mode_choice:
@@ -799,12 +846,6 @@ with tab_calc:
         else:
             mode = "exploration"
 
-    
-
-
-       
-
-        # ---------------- Predict ----------------
         # ---------------- Predict ----------------
         if st.button("Estimate risks", key="calc_button"):
             # Force them to choose a mode first
@@ -813,7 +854,7 @@ with tab_calc:
                     "Please select whether you're using real information or just exploring before continuing."
                 )
                 st.stop()
-        
+
             # 1) Build features
             X = build_feature_df(
                 bmi=bmi, age=age, waist=waist, activity_label=activity,
@@ -821,14 +862,14 @@ with tab_calc:
                 income_ratio=income_ratio, education_label=education,
                 race_label=race, gender_label=gender
             )
-        
+
             # 2) Predict
             X_model = prepare_for_model(X)
             p_diab, p_ckd, p_cvd = predict_three(X_model)
-        
-            # 3) Log (now with mode)
+
+            # 3) Log (with mode and country)
             log_individual_prediction(
-                mode=mode,              # ✅ NEW ARG
+                mode=mode,
                 bmi=bmi,
                 age=age,
                 waist=waist,
@@ -841,18 +882,18 @@ with tab_calc:
                 education_label=education,
                 race_label=race,
                 gender_label=gender,
-                country_label=country,
                 p_diab=float(p_diab[0]),
                 p_ckd=float(p_ckd[0]),
                 p_cvd=float(p_cvd[0]),
+                country=country,   # NEW
             )
-        
+
             # 4) Display
             r1, r2, r3 = st.columns(3)
             r1.metric("Diabetes risk", f"{p_diab[0]*100:.1f}%")
             r2.metric("CKD risk", f"{p_ckd[0]*100:.1f}%")
             r3.metric("CVD risk", f"{p_cvd[0]*100:.1f}%")
-        
+
             st.caption("These estimates are based solely on non-dietary predictors.")
 
 
@@ -863,7 +904,7 @@ with tab_calc:
         st.title("Individual sensitivity analysis")
         st.caption(
             "These plots use the **same profile** you entered in the "
-            "‘Individual risk calculator’ tab above as the baseline individual."
+            "'Individual risk calculator' tab above as the baseline individual."
         )
 
         baseline_df = build_feature_df(
@@ -1259,7 +1300,6 @@ with tab_research:
             i_diab, i_ckd, i_cvd = predict_three(scen_X)
 
             # ---------- overall summary ----------
-                       # ---------- overall summary ----------
             overall = pd.DataFrame({
                 "Disease": ["Diabetes", "CKD", "CVD"],
                 "Baseline_mean": [
@@ -1285,8 +1325,6 @@ with tab_research:
 
             # Store for later rendering (outside the button)
             st.session_state["overall_df"] = overall
-
-
 
             # ---------- subgroup summary ----------
             st.markdown(f"**Subgroup data prepared for stratification by {strat_option}**")
@@ -1347,8 +1385,8 @@ with tab_research:
                 "Use the controls below to examine how different subgroups and global shifts "
                 "affect these changes."
             )
-                # ---------- Render overall summary + chart (persists after button click) ----------
-                # ---------- Render overall table + bar chart (persistent, editable) ----------
+
+        # ---------- Render overall summary + chart (persists after button click) ----------
         if "overall_df" in st.session_state:
             overall = st.session_state["overall_df"]
 
@@ -1412,11 +1450,8 @@ with tab_research:
             st.plotly_chart(fig_change, use_container_width=True,
                             config=PLOTLY_DOWNLOAD_CONFIG)
 
-       # if "overall_df" in st.session_state:
+        if "overall_df" in st.session_state:
             overall = st.session_state["overall_df"]
-                    # store overall summary so it can be rendered (and edited) without recomputing
-        #st.session_state["overall_df"] = overall
-
 
         # ------------------ Subgroup contributions plot ------------------
         if "df_sub" in st.session_state:
@@ -1509,7 +1544,6 @@ with tab_research:
             st.plotly_chart(fig_sub, use_container_width=True,
                             config=PLOTLY_DOWNLOAD_CONFIG)
 
-
             st.caption(
                 (
                     "Bars show how each subgroup contributes to the overall relative (%) change "
@@ -1519,7 +1553,6 @@ with tab_research:
             )
 
         # ------------------ Population 1D sensitivity ------------------
-                # ------------------ Population 1D sensitivity ------------------
         if "base_X" in st.session_state:
             st.markdown("---")
             st.subheader("Population-level one-dimensional sensitivity")
@@ -1573,7 +1606,7 @@ with tab_research:
 
             pop_sens_df = pd.DataFrame(rows)
 
-                        # -------- Plotly version with per-disease line + CI ribbons --------
+            # -------- Plotly version with per-disease line + CI ribbons --------
             fig_pop_sens = go.Figure()
 
             color_map = {
@@ -1766,19 +1799,18 @@ with tab_research:
                 default_x=pop_heat_x_label,
                 default_y=pop_heat_y_label,
             )
-            
-            # 🔧 Re-apply single shared axis titles so they don’t repeat on all 3 panels
+
+            # 🔧 Re-apply single shared axis titles so they don't repeat on all 3 panels
             fig_heat_pop.update_xaxes(title_text="", row=1, col=1)
             fig_heat_pop.update_xaxes(title_text=pop_heat_x_label, row=1, col=2)
             fig_heat_pop.update_xaxes(title_text="", row=1, col=3)
-            
+
             fig_heat_pop.update_yaxes(title_text=pop_heat_y_label, row=1, col=1)
             fig_heat_pop.update_yaxes(title_text="", row=1, col=2)
             fig_heat_pop.update_yaxes(title_text="", row=1, col=3)
-            
+
             st.plotly_chart(fig_heat_pop, use_container_width=True,
                             config=PLOTLY_DOWNLOAD_CONFIG)
-
 
             st.caption(
                 "Heatmaps show mean predicted risk in the synthetic population if everyone "
