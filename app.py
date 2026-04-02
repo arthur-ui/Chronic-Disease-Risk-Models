@@ -165,7 +165,7 @@ def log_individual_prediction(
     mode,  # "real_data" or "exploration"
     bmi, age, waist, activity_label, smoker_label,
     sbp, dbp, hr, income_ratio, education_label,
-    race_label, gender_label,
+    race_label, gender_label, country_label,
     p_diab, p_ckd, p_cvd,
 ):
     """
@@ -178,7 +178,7 @@ def log_individual_prediction(
 
     mode,age_bin,bmi_bin,waist_bin,activity,smoker,
     sbp_bin,dbp_bin,hr_bin,income_ratio_bin,
-    education,race,gender,
+    education,race,gender,country,
     diab_risk_pct,ckd_risk_pct,cvd_risk_pct
     """
     try:
@@ -201,6 +201,7 @@ def log_individual_prediction(
             education_label,             # education (NHANES categories)
             race_label,                  # race/ethnicity (4 cats)
             gender_label,                # gender
+            country_label,               # country
             float(p_diab) * 100.0,       # diab_risk_pct
             float(p_ckd) * 100.0,        # ckd_risk_pct
             float(p_cvd) * 100.0,        # cvd_risk_pct
@@ -776,6 +777,7 @@ with tab_calc:
             "Race/ethnicity",
             ["Non-Hispanic White", "Non-Hispanic Black", "Hispanic", "Other"]
         )
+        country = st.text_input("Country", value="United States")
 
                 # ---------------- Mode: real data vs exploring (forced choice) ----------------
         # ---------------- Mode: real data vs exploring (forced 2-choice) ----------------
@@ -839,6 +841,7 @@ with tab_calc:
                 education_label=education,
                 race_label=race,
                 gender_label=gender,
+                country_label=country,
                 p_diab=float(p_diab[0]),
                 p_ckd=float(p_ckd[0]),
                 p_cvd=float(p_cvd[0]),
@@ -1781,4 +1784,3 @@ with tab_research:
                 "Heatmaps show mean predicted risk in the synthetic population if everyone "
                 "had the specified pair of values for the two selected variables."
             )
-
