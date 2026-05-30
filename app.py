@@ -717,433 +717,476 @@ def apply_plotly_figure_editor(fig, key_prefix, default_title="", default_x="", 
     return fig
 
 
+# ===========================
+# Page navigation (URL-based)
+# ===========================
+_PAGES = {
+    "CVD/CKD/Diabetes Screener": "cvd-screener",
+    "Prostate Cancer Screener": "prostate-screener",
+    "Individual Sensitivity Analysis": "sensitivity",
+    "Researcher Tools": "researcher-tools",
+}
+_page_names = list(_PAGES.keys())
+_slugs = list(_PAGES.values())
 
-# ===========================
-# Tabs
-# ===========================
-tab_calc, tab_research = st.tabs(["Risk calculator", "Researcher tools"])
+_current_slug = st.query_params.get("page", "cvd-screener")
+if _current_slug not in _slugs:
+    _current_slug = "cvd-screener"
+_current_idx = _slugs.index(_current_slug)
+
+with st.sidebar:
+    st.markdown("### Navigation")
+    _selected_name = st.radio(
+        "", _page_names, index=_current_idx, label_visibility="collapsed"
+    )
+    _new_slug = _PAGES[_selected_name]
+    if _new_slug != _current_slug:
+        st.query_params["page"] = _new_slug
+        st.rerun()
+
+page = _current_slug
 
 
 # ============================================================
-#                     TAB 1: RISK CALCULATOR
+#                  CVD/CKD/DIABETES SCREENER
 # ============================================================
-with tab_calc:
-    # inner tabs: CVD/CKD/Diabetes screener, prostate screener, individual sensitivity
-    tab_indiv_calc, tab_prostate, tab_indiv_sens = st.tabs(
-        ["CVD/CKD/Diabetes Screener", "Prostate Cancer Screener", "Individual sensitivity analysis"]
+if page == "cvd-screener":
+    st.title("Non-Dietary Chronic Disease Risk Assessment Tool")
+    st.caption("Research prototype based on NHANES 2011–2020. Not for clinical use.")
+
+    # ---------------- Anthropometrics ----------------
+    st.subheader("Anthropometrics")
+
+    colA, colB = st.columns(2)
+
+    with colA:
+        height_unit = st.selectbox("Height unit", ["cm", "inches"])
+        if height_unit == "cm":
+            height_val = st.number_input("Height (cm)", 100.0, 250.0, 175.0)
+            height_m = height_val / 100.0
+        else:
+            height_val = st.number_input("Height (inches)", 40.0, 100.0, 70.0)
+            height_m = height_val * 0.0254
+
+    with colB:
+        weight_unit = st.selectbox("Weight unit", ["kg", "lbs"])
+        if weight_unit == "kg":
+            weight_val = st.number_input("Weight (kg)", 30.0, 300.0, 75.0)
+            weight_kg = weight_val
+        else:
+            weight_val = st.number_input("Weight (lbs)", 60.0, 600.0, 165.0)
+            weight_kg = weight_val * 0.453592
+
+    bmi = weight_kg / (height_m ** 2)
+    st.write(f"**Calculated BMI:** {bmi:.1f} kg/m²")
+
+    # ---------------- Socioeconomic ----------------
+    st.subheader("Socioeconomic variables")
+
+    colF1, colF2 = st.columns(2)
+    with colF1:
+        family_income = st.number_input("Annual family income (USD)", 0, 300000, 60000)
+    with colF2:
+        household_size = st.selectbox("Household size", list(range(1, 13)), index=3)
+
+    poverty_threshold = compute_poverty_threshold(household_size)
+    st.write(
+        f"**Estimated poverty threshold (48 states, {household_size} people):** "
+        f"${poverty_threshold:,.0f}"
+    )
+    income_ratio = family_income / poverty_threshold if poverty_threshold > 0 else 0.0
+    st.write(f"**Income-to-poverty ratio:** {income_ratio:.2f}")
+
+    # ---------------- Demographics & clinical ----------------
+    st.subheader("Demographics & clinical measurements")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        age = st.number_input("Age (years)", 18, 90, 45)
+        waist = st.number_input("Waist circumference (cm)", 50.0, 200.0, 95.0)
+        sbp = st.number_input("Avg systolic BP (mmHg)", 80, 220, 120)
+        smoker = st.selectbox("Current smoker?", ["No", "Yes"])
+
+    with col2:
+        dbp = st.number_input("Avg diastolic BP (mmHg)", 40, 140, 75)
+        hr = st.number_input("Resting heart rate (bpm)", 40, 140, 70)
+        activity = st.selectbox("Physical activity level", ["Low", "Moderate", "High"])
+
+    education = st.selectbox(
+        "Education level (NHANES categories)",
+        [
+            "Less than 9th grade",
+            "9-11th grade (Includes 12th w/o diploma)",
+            "High school graduate/GED or equivalent",
+            "Some college or AA degree",
+            "College graduate or above"
+        ]
     )
 
-    # ---------------------------
-    # A. Individual risk calculator
-    # ---------------------------
-    with tab_indiv_calc:
-        st.title("Non-Dietary Chronic Disease Risk Assessment Tool")
-        st.caption("Research prototype based on NHANES 2011–2020. Not for clinical use.")
+    gender = st.selectbox("Gender", ["Male", "Female"])
+    race = st.selectbox(
+        "Race/ethnicity",
+        ["Non-Hispanic White", "Non-Hispanic Black", "Hispanic", "Other"]
+    )
 
-        # ---------------- Anthropometrics ----------------
-        st.subheader("Anthropometrics")
+    # ---------------- Country of residence ----------------
+    country = st.selectbox(
+        "Country of residence",
+        COUNTRY_LIST,
+        index=0,
+        help=(
+            "Select your country of residence. This is recorded only as a broad "
+            "geographic indicator for research purposes. Choose 'Prefer not to say' "
+            "to skip."
+        ),
+    )
 
-        colA, colB = st.columns(2)
+    # Persist inputs so the Sensitivity Analysis page can use them
+    st.session_state["cvd_age"] = age
+    st.session_state["cvd_bmi"] = bmi
+    st.session_state["cvd_waist"] = waist
+    st.session_state["cvd_activity"] = activity
+    st.session_state["cvd_smoker"] = smoker
+    st.session_state["cvd_sbp"] = sbp
+    st.session_state["cvd_dbp"] = dbp
+    st.session_state["cvd_hr"] = hr
+    st.session_state["cvd_income_ratio"] = income_ratio
+    st.session_state["cvd_education"] = education
+    st.session_state["cvd_race"] = race
+    st.session_state["cvd_gender"] = gender
 
-        with colA:
-            height_unit = st.selectbox("Height unit", ["cm", "inches"])
-            if height_unit == "cm":
-                height_val = st.number_input("Height (cm)", 100.0, 250.0, 175.0)
-                height_m = height_val / 100.0
-            else:
-                height_val = st.number_input("Height (inches)", 40.0, 100.0, 70.0)
-                height_m = height_val * 0.0254
+    # ---------------- Mode: real data vs exploring (forced choice) ----------------
+    mode_choice = st.radio(
+        "Are you entering your own real information, or just exploring the tool?",
+        (
+            "I'm entering my real information today",
+            "I'm just exploring / using example values",
+        ),
+        index=None,   # <- forces no default selection
+        help="This only affects how your data are logged for research; it does not change your risk estimates."
+    )
 
-        with colB:
-            weight_unit = st.selectbox("Weight unit", ["kg", "lbs"])
-            if weight_unit == "kg":
-                weight_val = st.number_input("Weight (kg)", 30.0, 300.0, 75.0)
-                weight_kg = weight_val
-            else:
-                weight_val = st.number_input("Weight (lbs)", 60.0, 600.0, 165.0)
-                weight_kg = weight_val * 0.453592
+    # Convert selection into mode variable
+    if mode_choice is None:
+        mode = None
+    elif "real" in mode_choice:
+        mode = "real_data"
+    else:
+        mode = "exploration"
 
-        bmi = weight_kg / (height_m ** 2)
-        st.write(f"**Calculated BMI:** {bmi:.1f} kg/m²")
-
-        # ---------------- Socioeconomic ----------------
-        st.subheader("Socioeconomic variables")
-
-        colF1, colF2 = st.columns(2)
-        with colF1:
-            family_income = st.number_input("Annual family income (USD)", 0, 300000, 60000)
-        with colF2:
-            household_size = st.selectbox("Household size", list(range(1, 13)), index=3)
-
-        poverty_threshold = compute_poverty_threshold(household_size)
-        st.write(
-            f"**Estimated poverty threshold (48 states, {household_size} people):** "
-            f"${poverty_threshold:,.0f}"
-        )
-        income_ratio = family_income / poverty_threshold if poverty_threshold > 0 else 0.0
-        st.write(f"**Income-to-poverty ratio:** {income_ratio:.2f}")
-
-        # ---------------- Demographics & clinical ----------------
-        st.subheader("Demographics & clinical measurements")
-
-        col1, col2 = st.columns(2)
-        with col1:
-            age = st.number_input("Age (years)", 18, 90, 45)
-            waist = st.number_input("Waist circumference (cm)", 50.0, 200.0, 95.0)
-            sbp = st.number_input("Avg systolic BP (mmHg)", 80, 220, 120)
-            smoker = st.selectbox("Current smoker?", ["No", "Yes"])
-
-        with col2:
-            dbp = st.number_input("Avg diastolic BP (mmHg)", 40, 140, 75)
-            hr = st.number_input("Resting heart rate (bpm)", 40, 140, 70)
-            activity = st.selectbox("Physical activity level", ["Low", "Moderate", "High"])
-
-        education = st.selectbox(
-            "Education level (NHANES categories)",
-            [
-                "Less than 9th grade",
-                "9-11th grade (Includes 12th w/o diploma)",
-                "High school graduate/GED or equivalent",
-                "Some college or AA degree",
-                "College graduate or above"
-            ]
-        )
-
-        gender = st.selectbox("Gender", ["Male", "Female"])
-        race = st.selectbox(
-            "Race/ethnicity",
-            ["Non-Hispanic White", "Non-Hispanic Black", "Hispanic", "Other"]
-        )
-
-        # ---------------- Country of residence ----------------
-        country = st.selectbox(
-            "Country of residence",
-            COUNTRY_LIST,
-            index=0,
-            help=(
-                "Select your country of residence. This is recorded only as a broad "
-                "geographic indicator for research purposes. Choose 'Prefer not to say' "
-                "to skip."
-            ),
-        )
-
-        # ---------------- Mode: real data vs exploring (forced choice) ----------------
-        mode_choice = st.radio(
-            "Are you entering your own real information, or just exploring the tool?",
-            (
-                "I'm entering my real information today",
-                "I'm just exploring / using example values",
-            ),
-            index=None,   # <- forces no default selection
-            help="This only affects how your data are logged for research; it does not change your risk estimates."
-        )
-
-        # Convert selection into mode variable
-        if mode_choice is None:
-            mode = None
-        elif "real" in mode_choice:
-            mode = "real_data"
-        else:
-            mode = "exploration"
-
-        # ---------------- Predict ----------------
-        if st.button("Estimate risks", key="calc_button"):
-            # Force them to choose a mode first
-            if mode is None:
-                st.warning(
-                    "Please select whether you're using real information or just exploring before continuing."
-                )
-                st.stop()
-
-            # 1) Build features
-            X = build_feature_df(
-                bmi=bmi, age=age, waist=waist, activity_label=activity,
-                smoker_label=smoker, sbp=sbp, dbp=dbp, hr=hr,
-                income_ratio=income_ratio, education_label=education,
-                race_label=race, gender_label=gender
+    # ---------------- Predict ----------------
+    if st.button("Estimate risks", key="calc_button"):
+        # Force them to choose a mode first
+        if mode is None:
+            st.warning(
+                "Please select whether you're using real information or just exploring before continuing."
             )
+            st.stop()
 
-            # 2) Predict
-            X_model = prepare_for_model(X)
-            p_diab, p_ckd, p_cvd = predict_three(X_model)
-
-            # 3) Log (with mode and country)
-            log_individual_prediction(
-                mode=mode,
-                bmi=bmi,
-                age=age,
-                waist=waist,
-                activity_label=activity,
-                smoker_label=smoker,
-                sbp=sbp,
-                dbp=dbp,
-                hr=hr,
-                income_ratio=income_ratio,
-                education_label=education,
-                race_label=race,
-                gender_label=gender,
-                p_diab=float(p_diab[0]),
-                p_ckd=float(p_ckd[0]),
-                p_cvd=float(p_cvd[0]),
-                country=country,   # NEW
-            )
-
-            # 4) Display
-            r1, r2, r3 = st.columns(3)
-            r1.metric("Diabetes risk", f"{p_diab[0]*100:.1f}%")
-            r2.metric("CKD risk", f"{p_ckd[0]*100:.1f}%")
-            r3.metric("CVD risk", f"{p_cvd[0]*100:.1f}%")
-
-            st.caption("These estimates are based solely on non-dietary predictors.")
-
-
-    # ---------------------------
-    # B. Prostate Cancer Screener
-    # ---------------------------
-    with tab_prostate:
-        st.title("Prostate Cancer Screener")
-        st.caption("Research prototype. Not for clinical use. This estimate is based on many assumptions and should not replace medical advice, screening, or biopsy.")
-
-        st.subheader("Enter your information")
-
-        psa_val = st.number_input("PSA level (ng/mL)", min_value=0.01, max_value=100.0, value=1.0, step=0.1)
-        age_pca = st.number_input("Age (years)", min_value=18, max_value=100, value=60, key="pca_age")
-        african_american = st.selectbox("Do you identify as African American / Black?", ["No", "Yes"], key="pca_aa")
-
-        aa_flag = 1 if african_american == "Yes" else 0
-
-        if st.button("Estimate prostate cancer risk", key="pca_button"):
-            log2_psa = np.log2(psa_val)
-
-            if psa_val >= 2:
-                S = (-6.84249970
-                     + 0.70043815 * log2_psa
-                     + 0.04574460 * age_pca
-                     + 1.01699029 * aa_flag)
-            else:
-                S = (-2.81814489
-                     + 0.24044370 * log2_psa
-                     + 0.01370219 * age_pca
-                     + 0.12000825 * aa_flag)
-
-            p_no_cancer = 1.0 / (1.0 + np.exp(S))
-            p_cancer = 1.0 - p_no_cancer
-            p_cancer_pct = p_cancer * 100.0
-
-            st.metric("Estimated probability of prostate cancer", f"{p_cancer_pct:.1f}%")
-
-            if psa_val >= 2:
-                st.warning(
-                    f"You would likely be recommended for a biopsy using standard tests, "
-                    f"yet your approximate risk of having prostate cancer is only {p_cancer_pct:.1f}%\\*. "
-                    f"Help fund glycoscore to prevent these unnecessary biopsies: "
-                    f"750,000 of them per year in the US alone."
-                )
-            else:
-                st.info(
-                    "You would not be recommended for a biopsy using standard tests, "
-                    "but millions of adults receive unnecessary biopsies each year because of "
-                    "these tests. Help fund glycoscore to prevent these unnecessary biopsies: "
-                    "750,000 of them per year in the US alone."
-                )
-
-            st.caption(
-                "\\* This estimate is based on many assumptions and should not replace "
-                "medical advice, screening, or biopsy."
-            )
-
-    # ---------------------------
-    # C. Individual sensitivity analysis
-    # ---------------------------
-    with tab_indiv_sens:
-        st.title("Individual sensitivity analysis")
-        st.caption(
-            "These plots use the **same profile** you entered in the "
-            "'Individual risk calculator' tab above as the baseline individual."
-        )
-
-        baseline_df = build_feature_df(
-            bmi=bmi, age=age, waist=waist,
-            activity_label=activity,
-            smoker_label=smoker,
-            sbp=sbp, dbp=dbp, hr=hr,
-            income_ratio=income_ratio,
-            education_label=education,
+        # 1) Build features
+        X = build_feature_df(
+            bmi=bmi, age=age, waist=waist, activity_label=activity,
+            smoker_label=smoker, sbp=sbp, dbp=dbp, hr=hr,
+            income_ratio=income_ratio, education_label=education,
             race_label=race, gender_label=gender
         )
-        baseline_X = prepare_for_model(baseline_df)
-        base_diab, base_ckd, base_cvd = predict_three(baseline_X)
 
-        st.markdown(
-            f"Baseline predicted risks – Diabetes: **{base_diab[0]*100:.2f}%**, "
-            f"CKD: **{base_ckd[0]*100:.2f}%**, CVD: **{base_cvd[0]*100:.2f}%**."
+        # 2) Predict
+        X_model = prepare_for_model(X)
+        p_diab, p_ckd, p_cvd = predict_three(X_model)
+
+        # 3) Log (with mode and country)
+        log_individual_prediction(
+            mode=mode,
+            bmi=bmi,
+            age=age,
+            waist=waist,
+            activity_label=activity,
+            smoker_label=smoker,
+            sbp=sbp,
+            dbp=dbp,
+            hr=hr,
+            income_ratio=income_ratio,
+            education_label=education,
+            race_label=race,
+            gender_label=gender,
+            p_diab=float(p_diab[0]),
+            p_ckd=float(p_ckd[0]),
+            p_cvd=float(p_cvd[0]),
+            country=country,
         )
 
-        st.markdown("---")
+        # 4) Display
+        r1, r2, r3 = st.columns(3)
+        r1.metric("Diabetes risk", f"{p_diab[0]*100:.1f}%")
+        r2.metric("CKD risk", f"{p_ckd[0]*100:.1f}%")
+        r3.metric("CVD risk", f"{p_cvd[0]*100:.1f}%")
 
-        # 1D sensitivity (individual)
-        st.subheader("One-dimensional sensitivity analysis (individual)")
+        st.caption("These estimates are based solely on non-dietary predictors.")
 
-        var_options_indiv = {
-            "Age (years)": ("AgeYears", 20, 85, 40),
-            "BMI (kg/m²)": ("bmi", 18, 45, 40),
-            "Waist circumference (cm)": ("waist_circumference", 60, 140, 40),
-            "Systolic BP (mmHg)": ("avg_systolic", 90, 180, 40),
-            "Diastolic BP (mmHg)": ("avg_diastolic", 50, 110, 40),
-            "Resting HR (bpm)": ("avg_HR", 50, 110, 40),
-            "Income-to-poverty ratio": ("FamIncome_to_poverty_ratio", 0.3, 5.0, 40),
-        }
 
-        sens_label_indiv = st.selectbox(
-            "Choose variable to vary",
-            list(var_options_indiv.keys()),
-            index=0,
-            key="indiv_sens_var"
-        )
-        var_col, vmin, vmax, n_points = var_options_indiv[sens_label_indiv]
-        vals = np.linspace(vmin, vmax, n_points)
+# ============================================================
+#                  PROSTATE CANCER SCREENER
+# ============================================================
+elif page == "prostate-screener":
+    st.title("Prostate Cancer Screener")
+    st.caption("Research prototype. Not for clinical use. This estimate is based on many assumptions and should not replace medical advice, screening, or biopsy.")
 
-        sens_X = pd.concat([baseline_X] * n_points, ignore_index=True)
-        sens_X[var_col] = vals
+    st.subheader("Enter your information")
 
-        s_diab, s_ckd, s_cvd = predict_three(sens_X)
+    psa_val = st.number_input("PSA level (ng/mL)", min_value=0.01, max_value=100.0, value=1.0, step=0.1)
+    age_pca = st.number_input("Age (years)", min_value=18, max_value=100, value=60, key="pca_age")
+    african_american = st.selectbox("Do you identify as African American / Black?", ["No", "Yes"], key="pca_aa")
 
-        # convert to % risk for display
-        sens_df = pd.DataFrame({
-            "Value": vals,
-            "Diabetes": s_diab * 100.0,
-            "CKD": s_ckd * 100.0,
-            "CVD": s_cvd * 100.0,
-        }).melt("Value", var_name="Disease", value_name="Risk_pct")
+    aa_flag = 1 if african_american == "Yes" else 0
 
-        sens_chart = (
-            alt.Chart(sens_df)
-            .mark_line(size=3)
-            .encode(
-                x=alt.X("Value:Q", title=sens_label_indiv),
-                y=alt.Y("Risk_pct:Q", title="Predicted risk (%)"),
-                color=alt.Color(
-                    "Disease:N",
-                    title=None,
-                    scale=alt.Scale(
-                        domain=["Diabetes", "CKD", "CVD"],
-                        range=[COLOR_DIAB, COLOR_CKD, COLOR_CVD],
-                    ),
-                ),
+    if st.button("Estimate prostate cancer risk", key="pca_button"):
+        log2_psa = np.log2(psa_val)
+
+        if psa_val >= 2:
+            S = (-6.84249970
+                 + 0.70043815 * log2_psa
+                 + 0.04574460 * age_pca
+                 + 1.01699029 * aa_flag)
+        else:
+            S = (-2.81814489
+                 + 0.24044370 * log2_psa
+                 + 0.01370219 * age_pca
+                 + 0.12000825 * aa_flag)
+
+        p_no_cancer = 1.0 / (1.0 + np.exp(S))
+        p_cancer = 1.0 - p_no_cancer
+        p_cancer_pct = p_cancer * 100.0
+
+        st.metric("Estimated probability of prostate cancer", f"{p_cancer_pct:.1f}%")
+
+        if psa_val >= 2:
+            st.warning(
+                f"You would likely be recommended for a biopsy using standard tests, "
+                f"yet your approximate risk of having prostate cancer is only {p_cancer_pct:.1f}%\*. "
+                f"Help fund glycoscore to prevent these unnecessary biopsies: "
+                f"750,000 of them per year in the US alone."
             )
-        )
-        sens_chart = style_altair_pub(
-            sens_chart,
-            title=f"Individual sensitivity to {sens_label_indiv}"
-        )
-        st.altair_chart(sens_chart, use_container_width=True)
-        st.caption("Curves vary one predictor for your current profile, holding all others fixed.")
-
-        st.markdown("---")
-
-        # 2D heatmaps (individual)
-        st.subheader("Two-variable interaction heatmaps (individual)")
-
-        two_d_var_options_indiv = {
-            "Age (years)": ("AgeYears", 20, 85),
-            "BMI (kg/m²)": ("bmi", 18, 45),
-            "Waist circumference (cm)": ("waist_circumference", 60, 140),
-            "Systolic BP (mmHg)": ("avg_systolic", 90, 180),
-            "Diastolic BP (mmHg)": ("avg_diastolic", 50, 110),
-            "Resting HR (bpm)": ("avg_HR", 50, 110),
-            "Income-to-poverty ratio": ("FamIncome_to_poverty_ratio", 0.3, 5.0),
-        }
-
-        colH1, colH2 = st.columns(2)
-        with colH1:
-            heat_x_label_indiv = st.selectbox(
-                "X-axis variable",
-                list(two_d_var_options_indiv.keys()),
-                index=3,
-                key="indiv_heat_x"
-            )
-        with colH2:
-            y_choices = [k for k in two_d_var_options_indiv.keys() if k != heat_x_label_indiv]
-            heat_y_label_indiv = st.selectbox(
-                "Y-axis variable",
-                y_choices,
-                index=1,
-                key="indiv_heat_y"
+        else:
+            st.info(
+                "You would not be recommended for a biopsy using standard tests, "
+                "but millions of adults receive unnecessary biopsies each year because of "
+                "these tests. Help fund glycoscore to prevent these unnecessary biopsies: "
+                "750,000 of them per year in the US alone."
             )
 
-        (x_col, x_min, x_max) = two_d_var_options_indiv[heat_x_label_indiv]
-        (y_col, y_min, y_max) = two_d_var_options_indiv[heat_y_label_indiv]
-
-        n_x = st.slider("Resolution (X)", 5, 40, 20, key="indiv_nx_heat")
-        n_y = st.slider("Resolution (Y)", 5, 40, 20, key="indiv_ny_heat")
-
-        x_vals = np.linspace(x_min, x_max, n_x)
-        y_vals = np.linspace(y_min, y_max, n_y)
-        X_grid, Y_grid = np.meshgrid(x_vals, y_vals)
-        n_grid = X_grid.size
-
-        grid_X = pd.concat([baseline_X] * n_grid, ignore_index=True)
-        grid_X[x_col] = X_grid.ravel()
-        grid_X[y_col] = Y_grid.ravel()
-
-        h_diab, h_ckd, h_cvd = predict_three(grid_X)
-
-        # convert to % risk
-        z_diab = h_diab.reshape(n_y, n_x) * 100.0
-        z_ckd = h_ckd.reshape(n_y, n_x) * 100.0
-        z_cvd = h_cvd.reshape(n_y, n_x) * 100.0
-
-        max_risk = float(max(z_diab.max(), z_ckd.max(), z_cvd.max()))
-
-        fig_heat = make_subplots(
-            rows=1, cols=3,
-            subplot_titles=("Diabetes", "CKD", "CVD"),
-            horizontal_spacing=0.06
-        )
-
-        for idx, z in enumerate([z_diab, z_ckd, z_cvd], start=1):
-            fig_heat.add_trace(
-                go.Heatmap(
-                    x=x_vals,
-                    y=y_vals,
-                    z=z,
-                    coloraxis="coloraxis"
-                ),
-                row=1, col=idx
-            )
-
-        fig_heat.update_layout(
-            title=(
-                f"Predicted risk (%) across {heat_x_label_indiv} "
-                f"and {heat_y_label_indiv} for current individual"
-            ),
-            coloraxis=dict(
-                colorscale="Viridis",
-                cmin=0.0,
-                cmax=max_risk,
-                colorbar=dict(title="Predicted risk (%)")
-            ),
-            margin=dict(l=60, r=40, t=80, b=60),
-        )
-
-        fig_heat.update_xaxes(title_text=heat_x_label_indiv, row=1, col=2)
-        fig_heat.update_yaxes(title_text=heat_y_label_indiv, row=1, col=1)
-        for c in [2, 3]:
-            fig_heat.update_yaxes(showticklabels=False, row=1, col=c)
-
-        fig_heat = style_plotly_pub(fig_heat)
-        st.plotly_chart(fig_heat, use_container_width=True,
-                        config=PLOTLY_DOWNLOAD_CONFIG)
         st.caption(
-            "Heatmaps show predicted risk for your current profile across a 2D grid "
-            "of values for the selected predictors."
+            "\* This estimate is based on many assumptions and should not replace "
+            "medical advice, screening, or biopsy."
         )
 
 
 # ============================================================
-#                 TAB 2: RESEARCHER TOOLS (POPULATION-BASED)
+#               INDIVIDUAL SENSITIVITY ANALYSIS
 # ============================================================
-with tab_research:
+elif page == "sensitivity":
+    st.title("Individual sensitivity analysis")
+    st.caption(
+        "These plots use the **same profile** you entered in the "
+        "'CVD/CKD/Diabetes Screener' page as the baseline individual."
+    )
+
+    # Read from session state (populated by CVD screener); fall back to sensible defaults
+    age = st.session_state.get("cvd_age", 45)
+    bmi = st.session_state.get("cvd_bmi", 24.7)
+    waist = st.session_state.get("cvd_waist", 95.0)
+    activity = st.session_state.get("cvd_activity", "Moderate")
+    smoker = st.session_state.get("cvd_smoker", "No")
+    sbp = st.session_state.get("cvd_sbp", 120)
+    dbp = st.session_state.get("cvd_dbp", 75)
+    hr = st.session_state.get("cvd_hr", 70)
+    income_ratio = st.session_state.get("cvd_income_ratio", 2.0)
+    education = st.session_state.get("cvd_education", "High school graduate/GED or equivalent")
+    race = st.session_state.get("cvd_race", "Non-Hispanic White")
+    gender = st.session_state.get("cvd_gender", "Male")
+
+    baseline_df = build_feature_df(
+        bmi=bmi, age=age, waist=waist,
+        activity_label=activity,
+        smoker_label=smoker,
+        sbp=sbp, dbp=dbp, hr=hr,
+        income_ratio=income_ratio,
+        education_label=education,
+        race_label=race, gender_label=gender
+    )
+    baseline_X = prepare_for_model(baseline_df)
+    base_diab, base_ckd, base_cvd = predict_three(baseline_X)
+
+    st.markdown(
+        f"Baseline predicted risks – Diabetes: **{base_diab[0]*100:.2f}%**, "
+        f"CKD: **{base_ckd[0]*100:.2f}%**, CVD: **{base_cvd[0]*100:.2f}%**."
+    )
+
+    st.markdown("---")
+
+    # 1D sensitivity (individual)
+    st.subheader("One-dimensional sensitivity analysis (individual)")
+
+    var_options_indiv = {
+        "Age (years)": ("AgeYears", 20, 85, 40),
+        "BMI (kg/m²)": ("bmi", 18, 45, 40),
+        "Waist circumference (cm)": ("waist_circumference", 60, 140, 40),
+        "Systolic BP (mmHg)": ("avg_systolic", 90, 180, 40),
+        "Diastolic BP (mmHg)": ("avg_diastolic", 50, 110, 40),
+        "Resting HR (bpm)": ("avg_HR", 50, 110, 40),
+        "Income-to-poverty ratio": ("FamIncome_to_poverty_ratio", 0.3, 5.0, 40),
+    }
+
+    sens_label_indiv = st.selectbox(
+        "Choose variable to vary",
+        list(var_options_indiv.keys()),
+        index=0,
+        key="indiv_sens_var"
+    )
+    var_col, vmin, vmax, n_points = var_options_indiv[sens_label_indiv]
+    vals = np.linspace(vmin, vmax, n_points)
+
+    sens_X = pd.concat([baseline_X] * n_points, ignore_index=True)
+    sens_X[var_col] = vals
+
+    s_diab, s_ckd, s_cvd = predict_three(sens_X)
+
+    # convert to % risk for display
+    sens_df = pd.DataFrame({
+        "Value": vals,
+        "Diabetes": s_diab * 100.0,
+        "CKD": s_ckd * 100.0,
+        "CVD": s_cvd * 100.0,
+    }).melt("Value", var_name="Disease", value_name="Risk_pct")
+
+    sens_chart = (
+        alt.Chart(sens_df)
+        .mark_line(size=3)
+        .encode(
+            x=alt.X("Value:Q", title=sens_label_indiv),
+            y=alt.Y("Risk_pct:Q", title="Predicted risk (%)"),
+            color=alt.Color(
+                "Disease:N",
+                title=None,
+                scale=alt.Scale(
+                    domain=["Diabetes", "CKD", "CVD"],
+                    range=[COLOR_DIAB, COLOR_CKD, COLOR_CVD],
+                ),
+            ),
+        )
+    )
+    sens_chart = style_altair_pub(
+        sens_chart,
+        title=f"Individual sensitivity to {sens_label_indiv}"
+    )
+    st.altair_chart(sens_chart, use_container_width=True)
+    st.caption("Curves vary one predictor for your current profile, holding all others fixed.")
+
+    st.markdown("---")
+
+    # 2D heatmaps (individual)
+    st.subheader("Two-variable interaction heatmaps (individual)")
+
+    two_d_var_options_indiv = {
+        "Age (years)": ("AgeYears", 20, 85),
+        "BMI (kg/m²)": ("bmi", 18, 45),
+        "Waist circumference (cm)": ("waist_circumference", 60, 140),
+        "Systolic BP (mmHg)": ("avg_systolic", 90, 180),
+        "Diastolic BP (mmHg)": ("avg_diastolic", 50, 110),
+        "Resting HR (bpm)": ("avg_HR", 50, 110),
+        "Income-to-poverty ratio": ("FamIncome_to_poverty_ratio", 0.3, 5.0),
+    }
+
+    colH1, colH2 = st.columns(2)
+    with colH1:
+        heat_x_label_indiv = st.selectbox(
+            "X-axis variable",
+            list(two_d_var_options_indiv.keys()),
+            index=3,
+            key="indiv_heat_x"
+        )
+    with colH2:
+        y_choices = [k for k in two_d_var_options_indiv.keys() if k != heat_x_label_indiv]
+        heat_y_label_indiv = st.selectbox(
+            "Y-axis variable",
+            y_choices,
+            index=1,
+            key="indiv_heat_y"
+        )
+
+    (x_col, x_min, x_max) = two_d_var_options_indiv[heat_x_label_indiv]
+    (y_col, y_min, y_max) = two_d_var_options_indiv[heat_y_label_indiv]
+
+    n_x = st.slider("Resolution (X)", 5, 40, 20, key="indiv_nx_heat")
+    n_y = st.slider("Resolution (Y)", 5, 40, 20, key="indiv_ny_heat")
+
+    x_vals = np.linspace(x_min, x_max, n_x)
+    y_vals = np.linspace(y_min, y_max, n_y)
+    X_grid, Y_grid = np.meshgrid(x_vals, y_vals)
+    n_grid = X_grid.size
+
+    grid_X = pd.concat([baseline_X] * n_grid, ignore_index=True)
+    grid_X[x_col] = X_grid.ravel()
+    grid_X[y_col] = Y_grid.ravel()
+
+    h_diab, h_ckd, h_cvd = predict_three(grid_X)
+
+    # convert to % risk
+    z_diab = h_diab.reshape(n_y, n_x) * 100.0
+    z_ckd = h_ckd.reshape(n_y, n_x) * 100.0
+    z_cvd = h_cvd.reshape(n_y, n_x) * 100.0
+
+    max_risk = float(max(z_diab.max(), z_ckd.max(), z_cvd.max()))
+
+    fig_heat = make_subplots(
+        rows=1, cols=3,
+        subplot_titles=("Diabetes", "CKD", "CVD"),
+        horizontal_spacing=0.06
+    )
+
+    for idx, z in enumerate([z_diab, z_ckd, z_cvd], start=1):
+        fig_heat.add_trace(
+            go.Heatmap(
+                x=x_vals,
+                y=y_vals,
+                z=z,
+                coloraxis="coloraxis"
+            ),
+            row=1, col=idx
+        )
+
+    fig_heat.update_layout(
+        title=(
+            f"Predicted risk (%) across {heat_x_label_indiv} "
+            f"and {heat_y_label_indiv} for current individual"
+        ),
+        coloraxis=dict(
+            colorscale="Viridis",
+            cmin=0.0,
+            cmax=max_risk,
+            colorbar=dict(title="Predicted risk (%)")
+        ),
+        margin=dict(l=60, r=40, t=80, b=60),
+    )
+
+    fig_heat.update_xaxes(title_text=heat_x_label_indiv, row=1, col=2)
+    fig_heat.update_yaxes(title_text=heat_y_label_indiv, row=1, col=1)
+    for c in [2, 3]:
+        fig_heat.update_yaxes(showticklabels=False, row=1, col=c)
+
+    fig_heat = style_plotly_pub(fig_heat)
+    st.plotly_chart(fig_heat, use_container_width=True,
+                    config=PLOTLY_DOWNLOAD_CONFIG)
+    st.caption(
+        "Heatmaps show predicted risk for your current profile across a 2D grid "
+        "of values for the selected predictors."
+    )
+
+
+# ============================================================
+#                 RESEARCHER TOOLS (POPULATION-BASED)
+# ============================================================
+elif page == "researcher-tools":
     # --- Terms of use gate for Researcher tools tab ---
     if "researcher_agreed" not in st.session_state:
         st.session_state["researcher_agreed"] = False
@@ -1157,19 +1200,19 @@ with tab_research:
         1. For exploratory **internal** use—such as lab discussions, coursework, or preliminary
            non-public analyses—you may use figures or tables generated by this tool, provided
            you cite:
-        
+
            **Costa, AM and Iris, BD. Nature Scientific Reports. 2026.**
-        
+
         2. For **any formal use** of this tool or its outputs in publications—including use in
            **manuscripts, preprints, external talks, or grant proposals**—you agree to
            **contact Arthur M. Costa (arthurcosta@uchicago.edu)** to discuss collaboration and
            **appropriate authorship**.
-        
-           The authors of Costa, AM and Iris, BD. Nature Scientific Reports. 2026. curated the 
-           underlying dataset, engineered derived variables, and developed the modelling 
-           and population-simulation framework used in this tool. Guidance on methodology 
+
+           The authors of Costa, AM and Iris, BD. Nature Scientific Reports. 2026. curated the
+           underlying dataset, engineered derived variables, and developed the modelling
+           and population-simulation framework used in this tool. Guidance on methodology
            can be found in the publication above, or by contacting Arthur directly.
-        
+
         3. To request custom analyses—such as incorporation of laboratory biomarkers,
            international datasets, or specialized modelling—please contact Arthur
            (**arthurcosta@uchicago.edu**) to explore potential collaborations.
@@ -1188,7 +1231,7 @@ with tab_research:
         else:
             if submitted and not agree:
                 st.warning("You must agree to the terms above to use the Researcher tools.")
-            # Stop rendering anything else in this tab until they agree
+            # Stop rendering anything else until they agree
             st.stop()
 
     st.title("Researcher tools & population sensitivity")
@@ -1493,7 +1536,6 @@ with tab_research:
             )
             fig_change = style_plotly_pub(fig_change)
 
-            # 🔧 Figure editor for the overall bar chart
             fig_change = apply_plotly_figure_editor(
                 fig_change,
                 key_prefix="overall_rel_change",
@@ -1726,7 +1768,6 @@ with tab_research:
 
             fig_pop_sens = style_plotly_pub(fig_pop_sens)
 
-            # 🔧 Figure editor toggle for this plot
             fig_pop_sens = apply_plotly_figure_editor(
                 fig_pop_sens,
                 key_prefix="pop_1d_sensitivity",
@@ -1855,7 +1896,7 @@ with tab_research:
                 default_y=pop_heat_y_label,
             )
 
-            # 🔧 Re-apply single shared axis titles so they don't repeat on all 3 panels
+            # Re-apply single shared axis titles so they don't repeat on all 3 panels
             fig_heat_pop.update_xaxes(title_text="", row=1, col=1)
             fig_heat_pop.update_xaxes(title_text=pop_heat_x_label, row=1, col=2)
             fig_heat_pop.update_xaxes(title_text="", row=1, col=3)
