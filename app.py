@@ -729,19 +729,37 @@ _PAGES = {
 _page_names = list(_PAGES.keys())
 _slugs = list(_PAGES.values())
 
+_embed_mode = st.query_params.get("embed", "false").lower() == "true"
+
 _current_slug = st.query_params.get("page", "cvd-screener")
 if _current_slug not in _slugs:
     _current_slug = "cvd-screener"
 _current_idx = _slugs.index(_current_slug)
 
+if _embed_mode:
+    # Hide Streamlit's header, footer, and deploy button when embedded in an iframe
+    st.markdown("""
+        <style>
+        #MainMenu {visibility: hidden;}
+        header[data-testid="stHeader"] {display: none;}
+        footer {display: none;}
+        .stDeployButton {display: none;}
+        [data-testid="stToolbar"] {display: none;}
+        </style>
+    """, unsafe_allow_html=True)
+
 with st.sidebar:
-    st.markdown("### Navigation")
+    if not _embed_mode:
+        st.markdown("### Navigation")
     _selected_name = st.radio(
         "", _page_names, index=_current_idx, label_visibility="collapsed"
     )
     _new_slug = _PAGES[_selected_name]
     if _new_slug != _current_slug:
+        # Preserve embed param when navigating
         st.query_params["page"] = _new_slug
+        if _embed_mode:
+            st.query_params["embed"] = "true"
         st.rerun()
 
 page = _current_slug
