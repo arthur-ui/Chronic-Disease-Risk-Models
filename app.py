@@ -276,7 +276,11 @@ PLOTLY_DOWNLOAD_CONFIG = {
     }
 }
 
-st.write("By using this app, you agree to the collection of anonymous, non-identifiable usage data (binned inputs and model-estimated risk outputs) for research purposes. No personal identifiers are collected.")
+_CONSENT_TEXT = (
+    "By using this app, you agree to the collection of anonymous, non-identifiable "
+    "usage data (binned inputs and model-estimated risk outputs) for research purposes. "
+    "No personal identifiers are collected."
+)
 
 
 def style_plotly_pub(fig, width=1100, height=650,
@@ -720,6 +724,8 @@ def apply_plotly_figure_editor(fig, key_prefix, default_title="", default_x="", 
 # ===========================
 # Page navigation (URL-based)
 # ===========================
+_embed_mode = st.query_params.get("embed", "false").lower() == "true"
+
 _PAGES = {
     "CVD/CKD/Diabetes Screener": "cvd-screener",
     "Prostate Cancer Screener": "prostate-screener",
@@ -728,8 +734,6 @@ _PAGES = {
 }
 _page_names = list(_PAGES.keys())
 _slugs = list(_PAGES.values())
-
-_embed_mode = st.query_params.get("embed", "false").lower() == "true"
 
 _current_slug = st.query_params.get("page", "cvd-screener")
 if _current_slug not in _slugs:
@@ -763,6 +767,9 @@ with st.sidebar:
         st.rerun()
 
 page = _current_slug
+
+if not _embed_mode:
+    st.write(_CONSENT_TEXT)
 
 
 # ============================================================
@@ -948,7 +955,6 @@ if page == "cvd-screener":
 # ============================================================
 elif page == "prostate-screener":
     st.title("Prostate Cancer Screener")
-    st.caption("Research prototype. Not for clinical use. This estimate is based on many assumptions and should not replace medical advice, screening, or biopsy.")
 
     st.subheader("Enter your information")
 
@@ -981,7 +987,7 @@ elif page == "prostate-screener":
         if psa_val >= 2:
             st.warning(
                 f"You would likely be recommended for a biopsy using standard tests, "
-                f"yet your approximate risk of having prostate cancer is only {p_cancer_pct:.1f}%\*. "
+                f"yet your approximate risk of having prostate cancer is only {p_cancer_pct:.1f}%. "
                 f"Help fund glycoscore to prevent these unnecessary biopsies: "
                 f"750,000 of them per year in the US alone."
             )
@@ -993,10 +999,13 @@ elif page == "prostate-screener":
                 "750,000 of them per year in the US alone."
             )
 
-        st.caption(
-            "\* This estimate is based on many assumptions and should not replace "
-            "medical advice, screening, or biopsy."
-        )
+
+
+    st.caption(
+        "Research prototype. Not for clinical use. "
+        "This estimate is based on many assumptions and should not replace "
+        "medical advice, screening, or biopsy."
+    )
 
 
 # ============================================================
