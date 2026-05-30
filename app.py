@@ -728,9 +728,9 @@ tab_calc, tab_research = st.tabs(["Risk calculator", "Researcher tools"])
 #                     TAB 1: RISK CALCULATOR
 # ============================================================
 with tab_calc:
-    # inner tabs: individual calculator vs individual sensitivity
-    tab_indiv_calc, tab_indiv_sens = st.tabs(
-        ["Individual risk calculator", "Individual sensitivity analysis"]
+    # inner tabs: CVD/CKD/Diabetes screener, prostate screener, individual sensitivity
+    tab_indiv_calc, tab_prostate, tab_indiv_sens = st.tabs(
+        ["CVD/CKD/Diabetes Screener", "Prostate Cancer Screener", "Individual sensitivity analysis"]
     )
 
     # ---------------------------
@@ -898,7 +898,62 @@ with tab_calc:
 
 
     # ---------------------------
-    # B. Individual sensitivity analysis
+    # B. Prostate Cancer Screener
+    # ---------------------------
+    with tab_prostate:
+        st.title("Prostate Cancer Screener")
+        st.caption("Research prototype. Not for clinical use. This estimate is based on many assumptions and should not replace medical advice, screening, or biopsy.")
+
+        st.subheader("Enter your information")
+
+        psa_val = st.number_input("PSA level (ng/mL)", min_value=0.01, max_value=100.0, value=1.0, step=0.1)
+        age_pca = st.number_input("Age (years)", min_value=18, max_value=100, value=60, key="pca_age")
+        african_american = st.selectbox("Do you identify as African American / Black?", ["No", "Yes"], key="pca_aa")
+
+        aa_flag = 1 if african_american == "Yes" else 0
+
+        if st.button("Estimate prostate cancer risk", key="pca_button"):
+            log2_psa = np.log2(psa_val)
+
+            if psa_val >= 2:
+                S = (-6.84249970
+                     + 0.70043815 * log2_psa
+                     + 0.04574460 * age_pca
+                     + 1.01699029 * aa_flag)
+            else:
+                S = (-2.81814489
+                     + 0.24044370 * log2_psa
+                     + 0.01370219 * age_pca
+                     + 0.12000825 * aa_flag)
+
+            p_no_cancer = 1.0 / (1.0 + np.exp(S))
+            p_cancer = 1.0 - p_no_cancer
+            p_cancer_pct = p_cancer * 100.0
+
+            st.metric("Estimated probability of prostate cancer", f"{p_cancer_pct:.1f}%")
+
+            if psa_val >= 2:
+                st.warning(
+                    f"You would likely be recommended for a biopsy using standard tests, "
+                    f"yet your approximate risk of having prostate cancer is only {p_cancer_pct:.1f}%\\*. "
+                    f"Help fund glycoscore to prevent these unnecessary biopsies: "
+                    f"750,000 of them per year in the US alone."
+                )
+            else:
+                st.info(
+                    "You would not be recommended for a biopsy using standard tests, "
+                    "but millions of adults receive unnecessary biopsies each year because of "
+                    "these tests. Help fund glycoscore to prevent these unnecessary biopsies: "
+                    "750,000 of them per year in the US alone."
+                )
+
+            st.caption(
+                "\\* This estimate is based on many assumptions and should not replace "
+                "medical advice, screening, or biopsy."
+            )
+
+    # ---------------------------
+    # C. Individual sensitivity analysis
     # ---------------------------
     with tab_indiv_sens:
         st.title("Individual sensitivity analysis")
