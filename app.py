@@ -724,7 +724,12 @@ def apply_plotly_figure_editor(fig, key_prefix, default_title="", default_x="", 
 # ===========================
 # Page navigation (URL-based)
 # ===========================
-_embed_mode = st.query_params.get("embed", "false").lower() == "true"
+# NOTE: Streamlit reserves "embed"/"embed_options" and strips them from st.query_params.
+# We use "embedded=true" as our custom Python-readable embed flag instead.
+# In Squarespace iframes use: ?embed=true&embedded=true
+#   ?embed=true   → Streamlit hides its own chrome (toolbar/header/footer) natively
+#   ?embedded=true → our Python code hides consent text and nav label
+_embed_mode = st.query_params.get("embedded", "false").lower() == "true"
 
 _PAGES = {
     "CVD/CKD/Diabetes Screener": "cvd-screener",
@@ -741,14 +746,14 @@ if _current_slug not in _slugs:
 _current_idx = _slugs.index(_current_slug)
 
 if _embed_mode:
-    # Hide Streamlit's header, footer, and deploy button when embedded in an iframe
     st.markdown("""
         <style>
-        #MainMenu {visibility: hidden;}
-        header[data-testid="stHeader"] {display: none;}
-        footer {display: none;}
-        .stDeployButton {display: none;}
-        [data-testid="stToolbar"] {display: none;}
+        #MainMenu {visibility: hidden !important;}
+        [data-testid="stHeader"] {display: none !important;}
+        [data-testid="stToolbar"] {display: none !important;}
+        [data-testid="stDecoration"] {display: none !important;}
+        footer {display: none !important;}
+        .stDeployButton {display: none !important;}
         </style>
     """, unsafe_allow_html=True)
 
@@ -760,10 +765,9 @@ with st.sidebar:
     )
     _new_slug = _PAGES[_selected_name]
     if _new_slug != _current_slug:
-        # Preserve embed param when navigating
         st.query_params["page"] = _new_slug
         if _embed_mode:
-            st.query_params["embed"] = "true"
+            st.query_params["embedded"] = "true"
         st.rerun()
 
 page = _current_slug
