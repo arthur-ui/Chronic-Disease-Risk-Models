@@ -962,7 +962,7 @@ elif page == "prostate-screener":
 
     st.subheader("Enter your information")
 
-    psa_val = st.number_input("PSA level (ng/mL)", min_value=0.01, max_value=100.0, value=1.0, step=0.1)
+    psa_val = st.number_input("PSA level (ng/mL)", min_value=0.01, max_value=100.0, value=2.0, step=0.1)
     age_pca = st.number_input("Age (years)", min_value=18, max_value=100, value=60, key="pca_age")
     african_american = st.selectbox("Do you identify as African American / Black?", ["No", "Yes"], key="pca_aa")
 
