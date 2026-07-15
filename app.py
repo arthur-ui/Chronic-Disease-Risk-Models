@@ -736,6 +736,7 @@ _PAGES = {
     "Prostate Cancer Screener": "prostate-screener",
     "Individual Sensitivity Analysis": "sensitivity",
     "Researcher Tools": "researcher-tools",
+    "Global Validation Lab": "global-validation",
 }
 _page_names = list(_PAGES.keys())
 _slugs = list(_PAGES.values())
@@ -1943,3 +1944,502 @@ elif page == "researcher-tools":
                 "Heatmaps show mean predicted risk in the synthetic population if everyone "
                 "had the specified pair of values for the two selected variables."
             )
+
+
+
+# ============================================================
+#                  GLOBAL VALIDATION LAB
+# ============================================================
+elif page == "global-validation":
+    import os as _os
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.compose import ColumnTransformer
+    from sklearn.pipeline import Pipeline
+    from sklearn.impute import SimpleImputer
+    from sklearn.preprocessing import OneHotEncoder, StandardScaler
+    from sklearn.metrics import (
+        roc_auc_score, average_precision_score, brier_score_loss, roc_curve,
+        precision_recall_curve,
+    )
+    try:
+        from xgboost import XGBClassifier
+        _HAS_XGB = True
+    except Exception:
+        _HAS_XGB = False
+
+    st.title("Global Validation Lab")
+    st.caption(
+        "Validate any non-laboratory (or laboratory) screening model across up to 90 countries — "
+        "WHO STEPS + NHANES + KNHANES, ~365,000 adults. Build a model here or upload your own, "
+        "choose where to train and where to test, and get per-country discrimination, calibration, "
+        "and operating-point metrics with downloadable tables and figures."
+    )
+
+    # -----------------------------------------------------------------
+    # Data
+    # -----------------------------------------------------------------
+    @st.cache_data(show_spinner="Loading harmonized global dataset…")
+    def _gv_load():
+        here = _os.path.dirname(_os.path.abspath(__file__))
+        cands = []
+        for base in [here, _os.getcwd(), _os.path.join(here, "data")]:
+            cands += [_os.path.join(base, "harmonized_global.parquet"),
+                      _os.path.join(base, "harmonized_global.xlsx")]
+        for p in cands:
+            if _os.path.exists(p):
+                df = pd.read_parquet(p) if p.endswith("parquet") else pd.read_excel(p, sheet_name="data")
+                return df, p
+        return None, None
+
+    gv_data, gv_path = _gv_load()
+    if gv_data is None:
+        st.error(
+            "Harmonized dataset not found. Place **harmonized_global.parquet** (or "
+            "**harmonized_global.xlsx**) next to app.py."
+        )
+        st.stop()
+
+    # -----------------------------------------------------------------
+    # Variable metadata
+    # -----------------------------------------------------------------
+    GV_CAT = {"sex", "race", "education", "region", "income_group", "urban_rural", "subpopulation"}
+    GV_GROUPS = {
+        "Demographics & context": ["age", "sex", "race", "education", "region",
+                                   "income_group", "year", "urban_rural"],
+        "Anthropometrics": ["height_cm", "weight_kg", "bmi", "waist_cm", "hip_cm", "waist_hip_ratio"],
+        "Vitals": ["systolic", "diastolic", "heart_rate", "pulse_pressure"],
+        "Tobacco": ["tobacco_current", "tobacco_daily", "smokeless_tobacco"],
+        "Alcohol": ["alcohol_ever", "alcohol_current"],
+        "Diet": ["fruit_days", "fruit_servings", "veg_days", "veg_servings", "adds_salt_often"],
+        "Physical activity": ["activity_level", "activity_vigorous_work", "activity_moderate_work",
+                              "active_transport", "recreation_vigorous", "recreation_moderate"],
+        "Laboratory": ["fasting_glucose", "hba1c", "total_cholesterol", "ldl", "triglycerides",
+                       "creatinine", "egfr", "crp"],
+        "History & medications": ["told_high_bp", "on_bp_meds", "told_high_glucose",
+                                  "on_glucose_meds", "family_history_cvd", "prior_mi_stroke"],
+    }
+    GV_LABELS = {
+        "age": "Age (years)", "sex": "Sex", "race": "Race/ethnicity (NHANES)",
+        "education": "Education level", "region": "WHO region", "income_group": "World Bank income group",
+        "year": "Survey year", "urban_rural": "Urban/Rural", "subpopulation": "Subpopulation",
+        "height_cm": "Height (cm)", "weight_kg": "Weight (kg)", "bmi": "BMI (kg/m²)",
+        "waist_cm": "Waist circumference (cm)", "hip_cm": "Hip circumference (cm)",
+        "waist_hip_ratio": "Waist–hip ratio", "systolic": "Systolic BP (mmHg)",
+        "diastolic": "Diastolic BP (mmHg)", "heart_rate": "Heart rate (bpm)",
+        "pulse_pressure": "Pulse pressure (mmHg)", "tobacco_current": "Current tobacco use (0/1)",
+        "tobacco_daily": "Daily tobacco use (0/1)", "smokeless_tobacco": "Smokeless tobacco (0/1)",
+        "alcohol_ever": "Ever consumed alcohol (0/1)", "alcohol_current": "Current alcohol use (0/1)",
+        "fruit_days": "Fruit intake (days/week)", "fruit_servings": "Fruit (servings/day)",
+        "veg_days": "Vegetable intake (days/week)", "veg_servings": "Vegetables (servings/day)",
+        "adds_salt_often": "Often adds salt (0/1)", "activity_level": "Physical activity level (0–2)",
+        "activity_vigorous_work": "Vigorous work activity (0/1)",
+        "activity_moderate_work": "Moderate work activity (0/1)",
+        "active_transport": "Active transport (walk/bike, 0/1)",
+        "recreation_vigorous": "Vigorous recreation (0/1)", "recreation_moderate": "Moderate recreation (0/1)",
+        "fasting_glucose": "Fasting glucose (mg/dL)", "hba1c": "HbA1c (%)",
+        "total_cholesterol": "Total cholesterol (mg/dL)", "ldl": "LDL cholesterol (mg/dL)",
+        "triglycerides": "Triglycerides (mg/dL)", "creatinine": "Creatinine (mg/dL)",
+        "egfr": "eGFR (mL/min/1.73m²)", "crp": "C-reactive protein (mg/L)",
+        "told_high_bp": "Told has high BP (0/1)", "on_bp_meds": "On BP medication (0/1)",
+        "told_high_glucose": "Told has high glucose (0/1)", "on_glucose_meds": "On glucose medication (0/1)",
+        "family_history_cvd": "Family history of CVD (0/1)", "prior_mi_stroke": "Prior MI or stroke (0/1)",
+    }
+    GV_OUTCOMES = {
+        "dx_diabetes": "Diabetes (prevalent)", "dx_cvd": "Cardiovascular disease (MI/stroke)",
+        "dx_hypertension": "Hypertension (measured ≥140/90)", "dx_ckd": "Chronic kidney disease (eGFR<60)",
+        "dx_obesity": "Obesity (BMI ≥ 30)",
+    }
+    GV_PRED_CANDIDATES = [c for g in GV_GROUPS.values() for c in g]
+    GV_NUMERIC_FOR_CUTOFF = ["fasting_glucose", "hba1c", "total_cholesterol", "ldl", "triglycerides",
+                             "creatinine", "egfr", "crp", "systolic", "diastolic", "pulse_pressure",
+                             "bmi", "waist_cm", "hip_cm", "waist_hip_ratio", "age", "heart_rate"]
+
+    def _gv_label(c):
+        return GV_LABELS.get(c, GV_OUTCOMES.get(c, c))
+
+    # -----------------------------------------------------------------
+    # Sidebar-style configuration (main pane)
+    # -----------------------------------------------------------------
+    with st.expander("① Dataset overview", expanded=False):
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Participants", f"{len(gv_data):,}")
+        c2.metric("Countries", f"{gv_data['iso3'].nunique()}")
+        c3.metric("WHO regions", f"{gv_data['region'].nunique()}")
+        c4.metric("Data sources", f"{gv_data['source'].nunique()}")
+        src_tbl = (gv_data.groupby("source")
+                   .agg(participants=("age", "size"), countries=("iso3", "nunique"))
+                   .reset_index())
+        st.dataframe(src_tbl, use_container_width=True, hide_index=True)
+        st.caption(f"Loaded from `{_os.path.basename(gv_path)}`.")
+
+    st.markdown("### ② Define the model")
+    gv_mode = st.radio(
+        "How do you want to supply the model?",
+        ["Build a model here", "Upload a .joblib model"],
+        horizontal=True,
+    )
+
+    # ----- outcome -----
+    st.markdown("#### Outcome (dependent variable)")
+    oc_col1, oc_col2 = st.columns([2, 3])
+    with oc_col1:
+        gv_out_kind = st.radio("Outcome type", ["Pre-built binary outcome", "Numeric variable + cut-off"],
+                               key="gv_out_kind")
+    gv_cut_dir, gv_cut_val = None, None
+    if gv_out_kind == "Pre-built binary outcome":
+        gv_outcome = st.selectbox("Outcome", list(GV_OUTCOMES.keys()),
+                                  format_func=lambda c: GV_OUTCOMES[c])
+    else:
+        with oc_col2:
+            gv_outcome = st.selectbox("Numeric variable", GV_NUMERIC_FOR_CUTOFF,
+                                      format_func=_gv_label)
+            _vals = pd.to_numeric(gv_data[gv_outcome], errors="coerce")
+            d1, d2 = st.columns(2)
+            gv_cut_dir = d1.selectbox("Positive when value is", ["≥ cut-off", "≤ cut-off"])
+            default_cut = float(np.nanmedian(_vals))
+            gv_cut_val = d2.number_input("Cut-off", value=round(default_cut, 1))
+            st.caption(f"Positive = {gv_outcome} {'≥' if gv_cut_dir.startswith('≥') else '≤'} {gv_cut_val}. "
+                       f"(observed range ≈ {np.nanmin(_vals):.0f}–{np.nanmax(_vals):.0f})")
+
+    def _gv_make_outcome(df):
+        if gv_out_kind == "Pre-built binary outcome":
+            y = pd.to_numeric(df[gv_outcome], errors="coerce")
+            return y.where(y.isin([0, 1]))
+        v = pd.to_numeric(df[gv_outcome], errors="coerce")
+        y = pd.Series(np.nan, index=df.index)
+        y[v.notna()] = 0.0
+        if gv_cut_dir.startswith("≥"):
+            y[v >= gv_cut_val] = 1.0
+        else:
+            y[v <= gv_cut_val] = 1.0
+        return y
+
+    # ----- predictors -----
+    st.markdown("#### Predictors (independent variables)")
+    if gv_mode == "Build a model here":
+        default_preds = ["age", "sex", "bmi", "waist_cm", "systolic"]
+        gv_preds = st.multiselect(
+            "Select predictors", GV_PRED_CANDIDATES,
+            default=[p for p in default_preds if p != gv_outcome],
+            format_func=_gv_label,
+        )
+        gv_preds = [p for p in gv_preds if p != gv_outcome]
+        gv_model_type = st.selectbox(
+            "Model type",
+            (["Logistic regression", "Random forest"] + (["XGBoost"] if _HAS_XGB else [])),
+        )
+    else:
+        st.info("Upload a fitted scikit-learn / XGBoost model saved with joblib. "
+                "Then map its input features, in order, to harmonized columns.")
+        gv_upload = st.file_uploader("Upload .joblib model", type=["joblib", "pkl"])
+        gv_preds = st.multiselect(
+            "Harmonized columns feeding the model (IN THE ORDER THE MODEL EXPECTS)",
+            GV_PRED_CANDIDATES, default=[], format_func=_gv_label,
+        )
+        gv_model_type = "Uploaded"
+
+    # -----------------------------------------------------------------
+    # Availability-aware country eligibility
+    # -----------------------------------------------------------------
+    MIN_TEST_N = st.slider("Minimum complete-case participants per test country", 30, 500, 100, 10)
+    MIN_POS = 10
+
+    @st.cache_data(show_spinner=False)
+    def _gv_country_eligibility(preds, outcome_key, out_kind, cut_dir, cut_val, min_n, min_pos):
+        needed = [c for c in preds if c in gv_data.columns]
+        y = _gv_make_outcome(gv_data)
+        base = gv_data[needed].notna().all(axis=1) if needed else pd.Series(True, index=gv_data.index)
+        ok = base & y.isin([0, 1])
+        rows = []
+        for iso, g in gv_data.assign(_ok=ok, _y=y).groupby("iso3"):
+            gg = g[g["_ok"]]
+            npos = int((gg["_y"] == 1).sum()); nneg = int((gg["_y"] == 0).sum())
+            rows.append(dict(iso3=iso, country=g["country"].iloc[0], region=g["region"].iloc[0],
+                             source=g["source"].iloc[0], n=len(gg), n_pos=npos, n_neg=nneg,
+                             eligible=(len(gg) >= min_n and npos >= min_pos and nneg >= min_pos)))
+        return pd.DataFrame(rows).sort_values(["eligible", "n"], ascending=[False, False])
+
+    if (gv_mode == "Build a model here" and gv_preds) or (gv_mode == "Upload a .joblib model" and gv_preds):
+        elig = _gv_country_eligibility(tuple(gv_preds), gv_outcome, gv_out_kind,
+                                       gv_cut_dir, gv_cut_val, MIN_TEST_N, MIN_POS)
+    else:
+        elig = pd.DataFrame(columns=["iso3", "country", "region", "source", "n", "n_pos", "n_neg", "eligible"])
+
+    elig_countries = elig[elig.eligible]["country"].tolist()
+    n_excluded = int((~elig.eligible).sum()) if len(elig) else 0
+
+    st.markdown("### ③ Choose where to train and where to test")
+    st.caption(
+        f"With your current variables, **{len(elig_countries)} countries** have enough complete-case "
+        f"data (≥{MIN_TEST_N} participants and ≥{MIN_POS} positives & negatives). "
+        f"{n_excluded} countries are hidden because the selected variables are missing there."
+    )
+
+    presets = {
+        "Train USA (NHANES) → test all other eligible countries": "usa_world",
+        "Train South Korea (KNHANES) → test all other eligible countries": "kor_world",
+        "Train on ALL eligible → test on ALL eligible (pooled)": "pooled",
+        "Custom selection": "custom",
+    }
+    gv_preset = st.selectbox("Preset", list(presets.keys()))
+    preset = presets[gv_preset]
+
+    def _sel_from_scope(scope):
+        return elig[elig.eligible & elig[scope[0]].eq(scope[1])]["country"].tolist()
+
+    if preset == "custom":
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            train_countries = st.multiselect("Train countries", elig_countries,
+                                             default=[c for c in ["United States"] if c in elig_countries])
+        with cc2:
+            test_countries = st.multiselect("Test countries", elig_countries,
+                                            default=[c for c in elig_countries if c not in train_countries][:40])
+    elif preset == "usa_world":
+        train_countries = [c for c in ["United States"] if c in elig_countries]
+        test_countries = [c for c in elig_countries if c != "United States"]
+    elif preset == "kor_world":
+        train_countries = [c for c in ["South Korea"] if c in elig_countries]
+        test_countries = [c for c in elig_countries if c != "South Korea"]
+    else:  # pooled
+        train_countries = elig_countries
+        test_countries = elig_countries
+
+    if gv_mode == "Upload a .joblib model":
+        train_countries = []  # no training needed
+
+    with st.expander("Show country availability table", expanded=False):
+        st.dataframe(elig.rename(columns={"n": "complete_cases"}), use_container_width=True, hide_index=True)
+
+    # threshold for operating-point metrics
+    gv_thr = st.slider("Decision threshold for sensitivity / specificity / PPV", 0.01, 0.99, 0.50, 0.01)
+
+    run_gv = st.button("🚀 Run global validation", type="primary", use_container_width=True)
+
+    # -----------------------------------------------------------------
+    # Metric helpers
+    # -----------------------------------------------------------------
+    def _gv_calib(y, p):
+        eps = 1e-6
+        pc = np.clip(p, eps, 1 - eps)
+        logit = np.log(pc / (1 - pc))
+        try:
+            lr = LogisticRegression(max_iter=1000).fit(logit.reshape(-1, 1), y)
+            return float(lr.coef_[0][0]), float(lr.intercept_[0])
+        except Exception:
+            return np.nan, np.nan
+
+    def _gv_metrics(y, p, thr):
+        y = np.asarray(y).astype(int); p = np.asarray(p, float)
+        out = dict(n=len(y), n_pos=int(y.sum()), prevalence=float(y.mean()))
+        if y.sum() == 0 or y.sum() == len(y):
+            out.update(dict(AUROC=np.nan, PR_AUC=np.nan, Brier=np.nan, calib_slope=np.nan,
+                            calib_intercept=np.nan, sensitivity=np.nan, specificity=np.nan,
+                            PPV=np.nan, NPV=np.nan))
+            return out
+        out["AUROC"] = float(roc_auc_score(y, p))
+        out["PR_AUC"] = float(average_precision_score(y, p))
+        out["Brier"] = float(brier_score_loss(y, p))
+        s, i = _gv_calib(y, p); out["calib_slope"], out["calib_intercept"] = s, i
+        yhat = (p >= thr).astype(int)
+        tp = int(((yhat == 1) & (y == 1)).sum()); fp = int(((yhat == 1) & (y == 0)).sum())
+        tn = int(((yhat == 0) & (y == 0)).sum()); fn = int(((yhat == 0) & (y == 1)).sum())
+        out["sensitivity"] = tp / (tp + fn) if (tp + fn) else np.nan
+        out["specificity"] = tn / (tn + fp) if (tn + fp) else np.nan
+        out["PPV"] = tp / (tp + fp) if (tp + fp) else np.nan
+        out["NPV"] = tn / (tn + fn) if (tn + fn) else np.nan
+        return out
+
+    def _gv_build_pipeline(preds, model_type):
+        num = [c for c in preds if c not in GV_CAT]
+        cat = [c for c in preds if c in GV_CAT]
+        if model_type == "Logistic regression":
+            num_tf = Pipeline([("imp", SimpleImputer(strategy="median")), ("sc", StandardScaler())])
+            clf = LogisticRegression(max_iter=2000)
+        elif model_type == "Random forest":
+            num_tf = Pipeline([("imp", SimpleImputer(strategy="median"))])
+            clf = RandomForestClassifier(n_estimators=400, max_depth=8, n_jobs=-1, random_state=42)
+        else:  # XGBoost
+            num_tf = Pipeline([("imp", SimpleImputer(strategy="median"))])
+            clf = XGBClassifier(n_estimators=300, max_depth=4, learning_rate=0.05,
+                                subsample=0.85, colsample_bytree=0.85, eval_metric="logloss",
+                                n_jobs=-1, random_state=42, tree_method="hist")
+        pre = ColumnTransformer([
+            ("num", num_tf, num),
+            ("cat", Pipeline([("imp", SimpleImputer(strategy="most_frequent")),
+                              ("oh", OneHotEncoder(handle_unknown="ignore"))]), cat),
+        ])
+        return Pipeline([("pre", pre), ("clf", clf)])
+
+    # -----------------------------------------------------------------
+    # RUN
+    # -----------------------------------------------------------------
+    if run_gv:
+        if not gv_preds:
+            st.error("Select at least one predictor."); st.stop()
+        if not test_countries:
+            st.error("No eligible test countries with the current variables/threshold."); st.stop()
+
+        y_all = _gv_make_outcome(gv_data)
+        work = gv_data.copy(); work["_y"] = y_all
+        needed = gv_preds
+        complete = work[needed].notna().all(axis=1) & work["_y"].isin([0, 1])
+        work = work[complete]
+
+        # ---- model ----
+        model, train_note = None, ""
+        if gv_mode == "Upload a .joblib model":
+            if gv_upload is None:
+                st.error("Upload a .joblib model first."); st.stop()
+            try:
+                model = joblib.load(gv_upload)
+            except Exception as e:
+                st.error(f"Could not load model: {e}"); st.stop()
+            train_note = "Uploaded model (no training performed)."
+        else:
+            tr = work[work.country.isin(train_countries)]
+            if tr["_y"].nunique() < 2 or len(tr) < 50:
+                st.error("Training set has too few samples or only one outcome class."); st.stop()
+            with st.spinner(f"Training {gv_model_type} on {len(tr):,} participants…"):
+                model = _gv_build_pipeline(gv_preds, gv_model_type)
+                model.fit(tr[gv_preds], tr["_y"].astype(int))
+            train_note = f"{gv_model_type} trained on {len(tr):,} participants from {len(train_countries)} country(ies)."
+
+        def _predict(df):
+            X = df[gv_preds]
+            try:
+                return model.predict_proba(X)[:, 1]
+            except Exception:
+                # uploaded model may expect raw numpy / different column names
+                return np.asarray(model.predict_proba(X.values))[:, 1]
+
+        # ---- per-country evaluation ----
+        te = work[work.country.isin(test_countries)]
+        results = []
+        for (iso, country, region, source), g in te.groupby(["iso3", "country", "region", "source"]):
+            try:
+                p = _predict(g)
+            except Exception as e:
+                continue
+            m = _gv_metrics(g["_y"].values, p, gv_thr)
+            m.update(dict(iso3=iso, country=country, region=region, source=source))
+            results.append(m)
+        res = pd.DataFrame(results)
+        if res.empty:
+            st.error("No test countries could be scored (prediction failed or no valid data)."); st.stop()
+
+        # pooled prediction for global curves
+        p_pool = _predict(te)
+        y_pool = te["_y"].values
+        pooled = _gv_metrics(y_pool, p_pool, gv_thr)
+
+        st.session_state["gv_out"] = dict(
+            res=res, pooled=pooled, y_pool=y_pool, p_pool=p_pool,
+            te_assembled=te[["source", "country", "iso3", "region"] + gv_preds + ["_y"]].rename(columns={"_y": "outcome"}),
+            train_note=train_note, preds=gv_preds, outcome=gv_outcome, thr=gv_thr,
+            model_type=gv_model_type, region_series=te["region"].values,
+        )
+
+    # -----------------------------------------------------------------
+    # RESULTS
+    # -----------------------------------------------------------------
+    if "gv_out" in st.session_state:
+        o = st.session_state["gv_out"]
+        res, pooled = o["res"], o["pooled"]
+        st.success(o["train_note"])
+        st.markdown("### ④ Results")
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Test countries", f"{res['iso3'].nunique()}")
+        m2.metric("Median country AUROC", f"{res['AUROC'].median():.3f}")
+        m3.metric("Pooled AUROC", f"{pooled['AUROC']:.3f}" if pooled['AUROC'] == pooled['AUROC'] else "—")
+        m4.metric("Countries AUROC ≥ 0.70", f"{int((res['AUROC'] >= 0.70).sum())}/{res['AUROC'].notna().sum()}")
+
+        # ---- world map ----
+        st.markdown("#### Performance map")
+        map_metric = st.selectbox("Colour countries by",
+                                  ["AUROC", "PR_AUC", "Brier", "calib_slope", "sensitivity", "specificity", "prevalence"],
+                                  key="gv_map_metric")
+        fig_map = go.Figure(go.Choropleth(
+            locations=res["iso3"], z=res[map_metric], locationmode="ISO-3",
+            colorscale="RdYlGn" if map_metric in ("AUROC", "PR_AUC", "sensitivity", "specificity") else "Viridis",
+            marker_line_color="white", marker_line_width=0.4,
+            colorbar_title=map_metric, zmid=(0.7 if map_metric == "AUROC" else None),
+            text=res["country"], hovertemplate="%{text}<br>" + map_metric + "=%{z:.3f}<extra></extra>",
+        ))
+        fig_map.update_layout(geo=dict(showframe=False, showcoastlines=False, projection_type="natural earth"),
+                              margin=dict(l=0, r=0, t=10, b=0), height=460)
+        st.plotly_chart(fig_map, use_container_width=True, config=PLOTLY_DOWNLOAD_CONFIG)
+
+        # ---- ROC + calibration ----
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            st.markdown("#### ROC (pooled test set)")
+            if pooled["AUROC"] == pooled["AUROC"]:
+                fpr, tpr, _ = roc_curve(o["y_pool"], o["p_pool"])
+                figroc = go.Figure()
+                figroc.add_trace(go.Scatter(x=fpr, y=tpr, mode="lines",
+                                            name=f"AUROC={pooled['AUROC']:.3f}", line=dict(color=COLOR_DIAB, width=3)))
+                figroc.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines",
+                                            line=dict(color="grey", dash="dash"), showlegend=False))
+                figroc.update_layout(xaxis_title="1 − specificity", yaxis_title="sensitivity",
+                                     height=380, margin=dict(l=50, r=10, t=10, b=40))
+                st.plotly_chart(figroc, use_container_width=True, config=PLOTLY_DOWNLOAD_CONFIG)
+        with cc2:
+            st.markdown("#### Calibration (pooled test set)")
+            dfc = pd.DataFrame({"y": o["y_pool"], "p": o["p_pool"]})
+            dfc["bin"] = pd.qcut(dfc["p"].rank(method="first"), 10, labels=False)
+            cal = dfc.groupby("bin").agg(pred=("p", "mean"), obs=("y", "mean")).reset_index()
+            figcal = go.Figure()
+            figcal.add_trace(go.Scatter(x=cal["pred"], y=cal["obs"], mode="lines+markers",
+                                        line=dict(color=COLOR_CVD, width=3), name="observed"))
+            figcal.add_trace(go.Scatter(x=[0, cal["pred"].max()], y=[0, cal["pred"].max()], mode="lines",
+                                        line=dict(color="grey", dash="dash"), showlegend=False))
+            figcal.update_layout(xaxis_title="mean predicted risk", yaxis_title="observed frequency",
+                                 height=380, margin=dict(l=50, r=10, t=10, b=40))
+            st.plotly_chart(figcal, use_container_width=True, config=PLOTLY_DOWNLOAD_CONFIG)
+
+        # ---- metric distribution across countries ----
+        st.markdown("#### Distribution of country-level performance")
+        dist_metric = st.selectbox("Metric", ["AUROC", "PR_AUC", "Brier", "sensitivity", "specificity", "calib_slope"],
+                                   key="gv_dist_metric")
+        figbox = go.Figure()
+        for reg, g in res.dropna(subset=[dist_metric]).groupby("region"):
+            figbox.add_trace(go.Box(y=g[dist_metric], name=reg, boxpoints="all", jitter=0.4,
+                                    pointpos=0, marker=dict(size=5), text=g["country"]))
+        figbox.update_layout(yaxis_title=dist_metric, height=420, showlegend=False,
+                             margin=dict(l=50, r=10, t=10, b=40))
+        st.plotly_chart(figbox, use_container_width=True, config=PLOTLY_DOWNLOAD_CONFIG)
+
+        # ---- tables + downloads ----
+        st.markdown("#### Per-country metric table")
+        show_cols = ["country", "iso3", "region", "source", "n", "n_pos", "prevalence",
+                     "AUROC", "PR_AUC", "Brier", "calib_slope", "calib_intercept",
+                     "sensitivity", "specificity", "PPV", "NPV"]
+        res_show = res[show_cols].sort_values("AUROC", ascending=False)
+        st.dataframe(res_show.round(4), use_container_width=True, hide_index=True)
+
+        d1, d2, d3 = st.columns(3)
+        d1.download_button("⬇ Per-country metrics (CSV)",
+                           res_show.round(5).to_csv(index=False).encode(),
+                           "global_validation_metrics.csv", "text/csv", use_container_width=True)
+        # cohort summary stats
+        summ = (o["te_assembled"].drop(columns=["iso3"])
+                .describe(include="all").transpose().reset_index().rename(columns={"index": "variable"}))
+        d2.download_button("⬇ Cohort summary stats (CSV)",
+                           summ.to_csv(index=False).encode(),
+                           "global_validation_summary.csv", "text/csv", use_container_width=True)
+        d3.download_button("⬇ Full analysis table (CSV)",
+                           o["te_assembled"].to_csv(index=False).encode(),
+                           "global_validation_data.csv", "text/csv", use_container_width=True)
+
+        with st.expander("Cohort summary statistics", expanded=False):
+            st.dataframe(summ, use_container_width=True, hide_index=True)
+
+        st.caption(
+            "Notes — AUROC and PR-AUC measure discrimination; calibration slope/intercept and Brier "
+            "measure calibration; sensitivity/specificity/PPV/NPV are computed at your chosen decision "
+            "threshold. Prevalence-dependent metrics (PR-AUC, PPV, calibration-in-the-large) are expected "
+            "to vary more across countries than AUROC. Research prototype — not for clinical use."
+        )

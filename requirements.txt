@@ -1,10 +1,23 @@
-streamlit
-pandas
-numpy
-scikit-learn==1.6.1
+# Costa Risk Modeling — Streamlit app requirements
+# Versions below are the tested, known-good set for app.py incl. the Global Validation Lab tab.
+
+# --- core app ---
+streamlit==1.50.0
+pandas==2.3.3
+numpy==2.0.2
+plotly==6.5.0
+altair==5.5.0
 joblib==1.5.2
-matplotlib
-plotly
-gspread
-google-auth
-xgboost
+
+# --- Global Validation Lab (model training + validation) ---
+scikit-learn==1.5.2
+xgboost==1.7.6
+
+# --- data IO (harmonized_global.parquet / .xlsx) ---
+pyarrow==21.0.0
+openpyxl==3.1.5
+XlsxWriter==3.2.0
+
+# --- Google Sheets logging (existing app dependency) ---
+gspread>=6.0.0
+google-auth>=2.27.0
