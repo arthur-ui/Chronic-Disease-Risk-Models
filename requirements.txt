@@ -9,9 +9,9 @@ plotly==6.5.0
 altair==5.5.0
 joblib==1.5.2
 
-# --- Global Validation Lab (model training + validation) ---
-scikit-learn==1.5.2
-xgboost==1.7.6
+# --- Match the versions embedded in the deployed .joblib models (Python >=3.10) ---
+scikit-learn==1.6.1
+xgboost==3.1.2
 
 # --- data IO (harmonized_global.parquet / .xlsx) ---
 pyarrow==21.0.0

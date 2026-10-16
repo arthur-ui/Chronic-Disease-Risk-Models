@@ -1,6 +1,7 @@
 import os
 import json
 import datetime
+from pathlib import Path
 
 import streamlit as st
 import pandas as pd
@@ -11,6 +12,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import gspread
 from google.oauth2.service_account import Credentials
+
+APP_DIR = Path(__file__).resolve().parent
 
 # ---------- IRB-safe binning helpers ----------
 
@@ -403,9 +406,12 @@ def style_altair_pub(chart, title=None, width=900, height=500):
 # ===========================
 # Load trained models
 # ===========================
-pipe_diab = joblib.load("diabetes_model.joblib")
-pipe_ckd = joblib.load("ckd_model.joblib")
-pipe_cvd = joblib.load("cvd_model.joblib")
+@st.cache_resource
+def load_risk_models():
+    """Load the bundled models once, independently of the launch directory."""
+    return tuple(joblib.load(APP_DIR / name) for name in (
+        "diabetes_model.joblib", "ckd_model.joblib", "cvd_model.joblib"
+    ))
 
 st.set_page_config(page_title="Non-Dietary Chronic Disease Risk Tool", page_icon="🧬")
 
@@ -507,6 +513,7 @@ def build_feature_df(
 
 def predict_three(X: pd.DataFrame):
     """Return probabilities for diabetes, CKD, CVD as tuple of 1D numpy arrays."""
+    pipe_diab, pipe_ckd, pipe_cvd = load_risk_models()
     p_diab = pipe_diab.predict_proba(X)[:, 1]
     p_ckd = pipe_ckd.predict_proba(X)[:, 1]
     p_cvd = pipe_cvd.predict_proba(X)[:, 1]
@@ -547,7 +554,7 @@ def bootstrap_rel_change(b_vals, i_vals, B=300, rng=None):
 # Load NHANES test set for simulation (real rows)
 # -------------------------------------------------
 try:
-    nhanes_sim = pd.read_csv("nhanes_test_for_sim.csv")
+    nhanes_sim = pd.read_csv(APP_DIR / "nhanes_test_for_sim.csv")
     HAVE_NHANES_SIM = True
 except Exception:
     nhanes_sim = None
@@ -762,7 +769,7 @@ with st.sidebar:
     if not _embed_mode:
         st.markdown("### Navigation")
     _selected_name = st.radio(
-        "", _page_names, index=_current_idx, label_visibility="collapsed"
+        "Page", _page_names, index=_current_idx, label_visibility="collapsed"
     )
     _new_slug = _PAGES[_selected_name]
     if _new_slug != _current_slug:
@@ -2166,7 +2173,10 @@ elif page == "global-validation":
     else:
         elig = pd.DataFrame(columns=["iso3", "country", "region", "source", "n", "n_pos", "n_neg", "eligible"])
 
-    elig_countries = elig[elig.eligible]["country"].tolist()
+    # Empty selections have object-typed columns; [] would be interpreted as
+    # column selection and drop "country". Always use a boolean row mask.
+    eligible_mask = elig["eligible"].fillna(False).astype(bool)
+    elig_countries = elig.loc[eligible_mask, "country"].tolist()
     n_excluded = int((~elig.eligible).sum()) if len(elig) else 0
 
     st.markdown("### ③ Choose where to train and where to test")
