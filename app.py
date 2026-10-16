@@ -538,6 +538,25 @@ def optional_number(label, min_value, max_value, *, key, step=None):
     return np.nan if value is None else value
 
 
+def required_number(label, min_value, max_value, *, key, step=None):
+    with st.container(key=f"required_{key}"):
+        kwargs = {"min_value": min_value, "max_value": max_value, "value": None,
+                  "key": key, "placeholder": "Required"}
+        if step is not None:
+            kwargs["step"] = step
+        value = st.number_input(label, **kwargs)
+        st.html(f'<style>.st-key-required_{key} input::placeholder {{color:#b42318!important;opacity:1}}</style>')
+    return np.nan if value is None else value
+
+
+def required_sex():
+    with st.container(key="required_gender"):
+        value = st.selectbox("Sex", list(gender_map), index=None, placeholder="Required", key="gender")
+        if value is None:
+            st.html('<style>.st-key-required_gender [data-baseweb="select"] * {color:#b42318!important}</style>')
+    return value
+
+
 def optional_category(label, options, *, key):
     return st.selectbox(label, [UNKNOWN, *options], index=0, key=key)
 
@@ -767,25 +786,17 @@ def render_chronic_disease():
     st.subheader("Body measurements")
     colA, colB = st.columns(2)
     with colA:
-        height_unit = optional_category("Height", ["Centimeters", "Inches"], key="height_unit")
-        height_m = np.nan
-        if height_unit != UNKNOWN:
-            metric = height_unit == "Centimeters"
-            height_val = st.number_input("Height (cm)" if metric else "Height (inches)",
-                min_value=100.0 if metric else 40.0, max_value=250.0 if metric else 100.0,
-                value=None, placeholder="Enter a value", key=f"height_{height_unit}")
-            if height_val is not None:
-                height_m = height_val / 100.0 if metric else height_val * 0.0254
+        height_unit = st.selectbox("Height unit", ["Centimeters", "Inches"], key="height_unit")
+        metric = height_unit == "Centimeters"
+        height_val = required_number("Height (cm)" if metric else "Height (inches)",
+            100.0 if metric else 40.0, 250.0 if metric else 100.0, key=f"height_{height_unit}")
+        height_m = height_val / 100.0 if metric else height_val * 0.0254
     with colB:
-        weight_unit = optional_category("Weight", ["Kilograms", "Pounds"], key="weight_unit")
-        weight_kg = np.nan
-        if weight_unit != UNKNOWN:
-            metric = weight_unit == "Kilograms"
-            weight_val = st.number_input("Weight (kg)" if metric else "Weight (lbs)",
-                min_value=30.0 if metric else 60.0, max_value=300.0 if metric else 600.0,
-                value=None, placeholder="Enter a value", key=f"weight_{weight_unit}")
-            if weight_val is not None:
-                weight_kg = weight_val if metric else weight_val * 0.453592
+        weight_unit = st.selectbox("Weight unit", ["Kilograms", "Pounds"], key="weight_unit")
+        metric = weight_unit == "Kilograms"
+        weight_val = required_number("Weight (kg)" if metric else "Weight (lbs)",
+            30.0 if metric else 60.0, 300.0 if metric else 600.0, key=f"weight_{weight_unit}")
+        weight_kg = weight_val if metric else weight_val * 0.453592
     bmi = weight_kg / (height_m ** 2)
     if pd.notna(bmi):
         st.write(f"**Calculated BMI:** {bmi:.1f} kg/m²")
@@ -804,7 +815,7 @@ def render_chronic_disease():
     st.subheader("Demographics & clinical measurements")
     col1, col2 = st.columns(2)
     with col1:
-        age = optional_number("Age (years)", 18, 90, key="age")
+        age = required_number("Age (years)", 18, 90, key="age")
         waist = optional_number("Waist circumference (cm)", 50.0, 200.0, key="waist")
         sbp = optional_number("Avg systolic BP (mmHg)", 80, 220, key="sbp")
         smoker = optional_category("Current smoker?", ["No", "Yes"], key="smoker")
@@ -813,7 +824,7 @@ def render_chronic_disease():
         hr = optional_number("Resting heart rate (bpm)", 40, 140, key="hr")
         activity = optional_category("Physical activity level", list(activity_map), key="activity")
     education = optional_category("Education level", list(education_map), key="education")
-    gender = optional_category("Gender", list(gender_map), key="gender")
+    gender = required_sex()
     race = optional_category("Race/ethnicity", list(race_map), key="race")
     country = st.selectbox("Country of residence", COUNTRY_LIST, index=0, key="country")
 
@@ -853,7 +864,13 @@ def render_chronic_disease():
         mode = "exploration"
 
     # ---------------- Predict ----------------
-    if st.button("Estimate risks", key="calc_button"):
+    required_ready = all(pd.notna(v) for v in [height_m, weight_kg, age]) and gender in gender_map
+    if not required_ready:
+        st.caption("Enter height, weight, age, and sex to continue.")
+    if st.button("Estimate risks", key="calc_button", disabled=not required_ready):
+        if not required_ready:
+            st.error("Height, weight, age, and sex are required.")
+            st.stop()
         # Force them to choose a mode first
         if mode is None:
             st.warning(
@@ -917,11 +934,11 @@ def render_prostate_cancer():
     st.subheader("Enter your information")
 
     psa_val = optional_number("PSA level (ng/mL)", 0.01, 100.0, key="pca_psa", step=0.1)
-    age_pca = optional_number("Age (years)", 18, 100, key="pca_age")
+    age_pca = required_number("Age (years)", 18, 100, key="pca_age")
     african_american = optional_category("Do you identify as African American / Black?", ["No", "Yes"], key="pca_aa")
     aa_flag = np.nan if african_american == UNKNOWN else int(african_american == "Yes")
 
-    if st.button("Estimate prostate cancer risk", key="pca_button"):
+    if st.button("Estimate prostate cancer risk", key="pca_button", disabled=pd.isna(age_pca)):
         missing = [label for label, value in [("PSA level", psa_val), ("age", age_pca),
                    ("the African American / Black identity question", aa_flag)] if pd.isna(value)]
         if missing:

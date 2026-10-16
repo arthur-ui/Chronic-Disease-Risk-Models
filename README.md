@@ -33,4 +33,4 @@ Keep the model and data files alongside `app.py`. The app resolves their paths r
 
 Each project renders on its own route. The sensitivity project uses the baseline profile calculated in the chronic-disease project during the same session. The older `?page=...` links remain supported, including the embedded Oxum screener.
 
-Profile inputs start with “Don't know/Prefer not to say.” Chronic-disease predictions use the fitted model pipelines to handle missing inputs; an entirely blank profile is not scored. The fixed-formula prostate calculator requires all three inputs before calculating.
+Height, weight, age, and sex are required for chronic-disease screening. Empty required fields display “Required” in red, and submission stays disabled until they are completed. Optional profile inputs start with “Don't know/Prefer not to say.” Chronic-disease predictions use the fitted model pipelines to handle skipped optional inputs. Age also displays “Required” in the prostate calculator. Its fixed formula requires all three inputs before calculating.
