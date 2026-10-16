@@ -14,10 +14,13 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 APP_DIR = Path(__file__).resolve().parent
+UNKNOWN = "Don't know/Prefer not to say"
 
 # ---------- IRB-safe binning helpers ----------
 
 def bin_age(age: float) -> str:
+    if pd.isna(age):
+        return UNKNOWN
     if age < 30:
         return "<30"
     elif age < 45:
@@ -30,6 +33,8 @@ def bin_age(age: float) -> str:
         return "75+"
 
 def bin_bmi(bmi: float) -> str:
+    if pd.isna(bmi):
+        return UNKNOWN
     if bmi < 18.5:
         return "<18.5"
     elif bmi < 25:
@@ -40,6 +45,8 @@ def bin_bmi(bmi: float) -> str:
         return ">=30"
 
 def bin_waist(waist_cm: float) -> str:
+    if pd.isna(waist_cm):
+        return UNKNOWN
     if waist_cm < 80:
         return "<80"
     elif waist_cm < 95:
@@ -50,6 +57,8 @@ def bin_waist(waist_cm: float) -> str:
         return ">=110"
 
 def bin_sbp(sbp: float) -> str:
+    if pd.isna(sbp):
+        return UNKNOWN
     if sbp < 110:
         return "<110"
     elif sbp < 130:
@@ -60,6 +69,8 @@ def bin_sbp(sbp: float) -> str:
         return ">=160"
 
 def bin_dbp(dbp: float) -> str:
+    if pd.isna(dbp):
+        return UNKNOWN
     if dbp < 70:
         return "<70"
     elif dbp < 80:
@@ -70,6 +81,8 @@ def bin_dbp(dbp: float) -> str:
         return ">=90"
 
 def bin_hr(hr: float) -> str:
+    if pd.isna(hr):
+        return UNKNOWN
     if hr < 60:
         return "<60"
     elif hr < 75:
@@ -80,6 +93,8 @@ def bin_hr(hr: float) -> str:
         return ">=90"
 
 def bin_income_ratio(r: float) -> str:
+    if pd.isna(r):
+        return UNKNOWN
     if r < 1.0:
         return "<1.0"
     elif r < 2.0:
@@ -125,7 +140,7 @@ ZERO_LINE_COLOR = "rgba(80,80,80,0.85)"
 # Country list
 # ===========================
 COUNTRY_LIST = [
-    "Prefer not to say",
+    UNKNOWN,
     "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda",
     "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bahamas", "Bahrain",
     "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan",
@@ -210,7 +225,7 @@ def log_individual_prediction(
     sbp, dbp, hr, income_ratio, education_label,
     race_label, gender_label,
     p_diab, p_ckd, p_cvd,
-    country="Prefer not to say",  # NEW: country of residence
+    country=UNKNOWN,  # NEW: country of residence
 ):
     """
     Append a single anonymized row to the Google Sheet.
@@ -413,7 +428,7 @@ def load_risk_models():
         "diabetes_model.joblib", "ckd_model.joblib", "cvd_model.joblib"
     ))
 
-st.set_page_config(page_title="Non-Dietary Chronic Disease Risk Tool", page_icon="🧬")
+st.set_page_config(page_title="Arthur Costa | Projects", page_icon="◈", layout="wide")
 
 # -------------------------------------------------
 # Shared constants / helper functions
@@ -499,16 +514,32 @@ def build_feature_df(
         "bmi": bmi,
         "AgeYears": age,
         "waist_circumference": waist,
-        "activity_level": activity_map[activity_label],
-        "smoking": smoke_map[smoker_label],
+        "activity_level": activity_map.get(activity_label, np.nan),
+        "smoking": smoke_map.get(smoker_label, np.nan),
         "avg_systolic": sbp,
         "avg_diastolic": dbp,
         "avg_HR": hr,
         "FamIncome_to_poverty_ratio": income_ratio,
-        "Education": education_map[education_label],
-        "Race": race_map[race_label],
-        "Gender": gender_map[gender_label],
+        "Education": education_map.get(education_label, np.nan),
+        "Race": race_map.get(race_label, np.nan),
+        "Gender": gender_map.get(gender_label, np.nan),
     }])
+
+
+def optional_number(label, min_value, max_value, *, key, step=None):
+    choice = st.selectbox(label, [UNKNOWN, "Enter a value"], key=f"{key}_choice")
+    if choice == UNKNOWN:
+        return np.nan
+    kwargs = {"min_value": min_value, "max_value": max_value, "value": None,
+              "key": f"{key}_value", "placeholder": "Enter a value"}
+    if step is not None:
+        kwargs["step"] = step
+    value = st.number_input(label, **kwargs)
+    return np.nan if value is None else value
+
+
+def optional_category(label, options, *, key):
+    return st.selectbox(label, [UNKNOWN, *options], index=0, key=key)
 
 
 def predict_three(X: pd.DataFrame):
@@ -626,7 +657,7 @@ else:
     nhanes_means = pd.Series(dtype=float)
 
 
-def prepare_for_model(df: pd.DataFrame) -> pd.DataFrame:
+def prepare_for_model(df: pd.DataFrame, *, impute_numeric=True) -> pd.DataFrame:
     """
     Ensure the dataframe has all feature columns, coerce to numeric, and
     impute missing values ONLY for numeric predictors.
@@ -642,10 +673,12 @@ def prepare_for_model(df: pd.DataFrame) -> pd.DataFrame:
     num_cols = [c for c in FEATURE_COLS if c not in forced_cats]
     cat_cols = [c for c in FEATURE_COLS if c in forced_cats]
 
-    # numeric: impute with NHANES means
-    for col in num_cols:
-        mean_val = nhanes_means.get(col, df[col].mean())
-        df[col] = df[col].fillna(mean_val)
+    # Population simulations retain their reference means. Individual screening
+    # leaves missing values for the fitted training-pipeline imputers.
+    if impute_numeric:
+        for col in num_cols:
+            mean_val = nhanes_means.get(col, df[col].mean())
+            df[col] = df[col].fillna(mean_val)
 
     # categorical: DO NOT mean-impute; leave as codes/NaNs
     for col in cat_cols:
@@ -728,155 +761,61 @@ def apply_plotly_figure_editor(fig, key_prefix, default_title="", default_x="", 
     return fig
 
 
-# ===========================
-# Page navigation (URL-based)
-# ===========================
-# NOTE: Streamlit reserves "embed"/"embed_options" and strips them from st.query_params.
-# We use "embedded=true" as our custom Python-readable embed flag instead.
-# In Squarespace iframes use: ?embed=true&embedded=true
-#   ?embed=true   → Streamlit hides its own chrome (toolbar/header/footer) natively
-#   ?embedded=true → our Python code hides consent text and nav label
-_embed_mode = st.query_params.get("embedded", "false").lower() == "true"
+def render_chronic_disease():
+    project_intro("chronic-disease")
 
-_PAGES = {
-    "CVD/CKD/Diabetes Screener": "cvd-screener",
-    "Prostate Cancer Screener": "prostate-screener",
-    "Individual Sensitivity Analysis": "sensitivity",
-    "Researcher Tools": "researcher-tools",
-    "Global Validation Lab": "global-validation",
-}
-_page_names = list(_PAGES.keys())
-_slugs = list(_PAGES.values())
-
-_current_slug = st.query_params.get("page", "cvd-screener")
-if _current_slug not in _slugs:
-    _current_slug = "cvd-screener"
-_current_idx = _slugs.index(_current_slug)
-
-if _embed_mode:
-    st.markdown("""
-        <style>
-        #MainMenu {visibility: hidden !important;}
-        [data-testid="stHeader"] {display: none !important;}
-        [data-testid="stToolbar"] {display: none !important;}
-        [data-testid="stDecoration"] {display: none !important;}
-        footer {display: none !important;}
-        .stDeployButton {display: none !important;}
-        </style>
-    """, unsafe_allow_html=True)
-
-with st.sidebar:
-    if not _embed_mode:
-        st.markdown("### Navigation")
-    _selected_name = st.radio(
-        "Page", _page_names, index=_current_idx, label_visibility="collapsed"
-    )
-    _new_slug = _PAGES[_selected_name]
-    if _new_slug != _current_slug:
-        st.query_params["page"] = _new_slug
-        if _embed_mode:
-            st.query_params["embedded"] = "true"
-        st.rerun()
-
-page = _current_slug
-
-if not _embed_mode:
-    st.write(_CONSENT_TEXT)
-
-
-# ============================================================
-#                  CVD/CKD/DIABETES SCREENER
-# ============================================================
-if page == "cvd-screener":
-    st.title("Non-Dietary Chronic Disease Risk Assessment Tool")
-    st.caption("Research prototype based on NHANES 2011–2020. Not for clinical use.")
-
-    # ---------------- Anthropometrics ----------------
-    st.subheader("Anthropometrics")
-
+    st.subheader("Body measurements")
     colA, colB = st.columns(2)
-
     with colA:
-        height_unit = st.selectbox("Height unit", ["cm", "inches"])
-        if height_unit == "cm":
-            height_val = st.number_input("Height (cm)", 100.0, 250.0, 175.0)
-            height_m = height_val / 100.0
-        else:
-            height_val = st.number_input("Height (inches)", 40.0, 100.0, 70.0)
-            height_m = height_val * 0.0254
-
+        height_unit = optional_category("Height", ["Centimeters", "Inches"], key="height_unit")
+        height_m = np.nan
+        if height_unit != UNKNOWN:
+            metric = height_unit == "Centimeters"
+            height_val = st.number_input("Height (cm)" if metric else "Height (inches)",
+                min_value=100.0 if metric else 40.0, max_value=250.0 if metric else 100.0,
+                value=None, placeholder="Enter a value", key=f"height_{height_unit}")
+            if height_val is not None:
+                height_m = height_val / 100.0 if metric else height_val * 0.0254
     with colB:
-        weight_unit = st.selectbox("Weight unit", ["kg", "lbs"])
-        if weight_unit == "kg":
-            weight_val = st.number_input("Weight (kg)", 30.0, 300.0, 75.0)
-            weight_kg = weight_val
-        else:
-            weight_val = st.number_input("Weight (lbs)", 60.0, 600.0, 165.0)
-            weight_kg = weight_val * 0.453592
-
+        weight_unit = optional_category("Weight", ["Kilograms", "Pounds"], key="weight_unit")
+        weight_kg = np.nan
+        if weight_unit != UNKNOWN:
+            metric = weight_unit == "Kilograms"
+            weight_val = st.number_input("Weight (kg)" if metric else "Weight (lbs)",
+                min_value=30.0 if metric else 60.0, max_value=300.0 if metric else 600.0,
+                value=None, placeholder="Enter a value", key=f"weight_{weight_unit}")
+            if weight_val is not None:
+                weight_kg = weight_val if metric else weight_val * 0.453592
     bmi = weight_kg / (height_m ** 2)
-    st.write(f"**Calculated BMI:** {bmi:.1f} kg/m²")
+    if pd.notna(bmi):
+        st.write(f"**Calculated BMI:** {bmi:.1f} kg/m²")
 
-    # ---------------- Socioeconomic ----------------
-    st.subheader("Socioeconomic variables")
-
+    st.subheader("Household information")
     colF1, colF2 = st.columns(2)
     with colF1:
-        family_income = st.number_input("Annual family income (USD)", 0, 300000, 60000)
+        family_income = optional_number("Annual family income (USD)", 0, 300000, key="family_income")
     with colF2:
-        household_size = st.selectbox("Household size", list(range(1, 13)), index=3)
+        household_size = optional_category("Household size", list(range(1, 13)), key="household_size")
+    # Retain the feature expected by the saved models without showing derived financial details.
+    income_ratio = np.nan
+    if pd.notna(family_income) and household_size != UNKNOWN:
+        income_ratio = family_income / compute_poverty_threshold(household_size)
 
-    poverty_threshold = compute_poverty_threshold(household_size)
-    st.write(
-        f"**Estimated poverty threshold (48 states, {household_size} people):** "
-        f"${poverty_threshold:,.0f}"
-    )
-    income_ratio = family_income / poverty_threshold if poverty_threshold > 0 else 0.0
-    st.write(f"**Income-to-poverty ratio:** {income_ratio:.2f}")
-
-    # ---------------- Demographics & clinical ----------------
     st.subheader("Demographics & clinical measurements")
-
     col1, col2 = st.columns(2)
     with col1:
-        age = st.number_input("Age (years)", 18, 90, 45)
-        waist = st.number_input("Waist circumference (cm)", 50.0, 200.0, 95.0)
-        sbp = st.number_input("Avg systolic BP (mmHg)", 80, 220, 120)
-        smoker = st.selectbox("Current smoker?", ["No", "Yes"])
-
+        age = optional_number("Age (years)", 18, 90, key="age")
+        waist = optional_number("Waist circumference (cm)", 50.0, 200.0, key="waist")
+        sbp = optional_number("Avg systolic BP (mmHg)", 80, 220, key="sbp")
+        smoker = optional_category("Current smoker?", ["No", "Yes"], key="smoker")
     with col2:
-        dbp = st.number_input("Avg diastolic BP (mmHg)", 40, 140, 75)
-        hr = st.number_input("Resting heart rate (bpm)", 40, 140, 70)
-        activity = st.selectbox("Physical activity level", ["Low", "Moderate", "High"])
-
-    education = st.selectbox(
-        "Education level (NHANES categories)",
-        [
-            "Less than 9th grade",
-            "9-11th grade (Includes 12th w/o diploma)",
-            "High school graduate/GED or equivalent",
-            "Some college or AA degree",
-            "College graduate or above"
-        ]
-    )
-
-    gender = st.selectbox("Gender", ["Male", "Female"])
-    race = st.selectbox(
-        "Race/ethnicity",
-        ["Non-Hispanic White", "Non-Hispanic Black", "Hispanic", "Other"]
-    )
-
-    # ---------------- Country of residence ----------------
-    country = st.selectbox(
-        "Country of residence",
-        COUNTRY_LIST,
-        index=0,
-        help=(
-            "Select your country of residence. This is recorded only as a broad "
-            "geographic indicator for research purposes. Choose 'Prefer not to say' "
-            "to skip."
-        ),
-    )
+        dbp = optional_number("Avg diastolic BP (mmHg)", 40, 140, key="dbp")
+        hr = optional_number("Resting heart rate (bpm)", 40, 140, key="hr")
+        activity = optional_category("Physical activity level", list(activity_map), key="activity")
+    education = optional_category("Education level", list(education_map), key="education")
+    gender = optional_category("Gender", list(gender_map), key="gender")
+    race = optional_category("Race/ethnicity", list(race_map), key="race")
+    country = st.selectbox("Country of residence", COUNTRY_LIST, index=0, key="country")
 
     # Persist inputs so the Sensitivity Analysis page can use them
     st.session_state["cvd_age"] = age
@@ -891,6 +830,8 @@ if page == "cvd-screener":
     st.session_state["cvd_education"] = education
     st.session_state["cvd_race"] = race
     st.session_state["cvd_gender"] = gender
+
+    st.caption(_CONSENT_TEXT)
 
     # ---------------- Mode: real data vs exploring (forced choice) ----------------
     mode_choice = st.radio(
@@ -929,7 +870,12 @@ if page == "cvd-screener":
         )
 
         # 2) Predict
-        X_model = prepare_for_model(X)
+        if X.isna().all(axis=None):
+            st.info("Enter at least one model input to estimate risk.")
+            st.stop()
+        if X.isna().any(axis=None):
+            st.caption("Skipped inputs are filled in by the model’s trained missing-data routines.")
+        X_model = prepare_for_model(X, impute_numeric=False)
         p_diab, p_ckd, p_cvd = predict_three(X_model)
 
         # 3) Log (with mode and country)
@@ -965,18 +911,22 @@ if page == "cvd-screener":
 # ============================================================
 #                  PROSTATE CANCER SCREENER
 # ============================================================
-elif page == "prostate-screener":
-    st.title("Prostate Cancer Screener")
+def render_prostate_cancer():
+    project_intro("prostate-cancer")
 
     st.subheader("Enter your information")
 
-    psa_val = st.number_input("PSA level (ng/mL)", min_value=0.01, max_value=100.0, value=2.0, step=0.1)
-    age_pca = st.number_input("Age (years)", min_value=18, max_value=100, value=60, key="pca_age")
-    african_american = st.selectbox("Do you identify as African American / Black?", ["No", "Yes"], key="pca_aa")
-
-    aa_flag = 1 if african_american == "Yes" else 0
+    psa_val = optional_number("PSA level (ng/mL)", 0.01, 100.0, key="pca_psa", step=0.1)
+    age_pca = optional_number("Age (years)", 18, 100, key="pca_age")
+    african_american = optional_category("Do you identify as African American / Black?", ["No", "Yes"], key="pca_aa")
+    aa_flag = np.nan if african_american == UNKNOWN else int(african_american == "Yes")
 
     if st.button("Estimate prostate cancer risk", key="pca_button"):
+        missing = [label for label, value in [("PSA level", psa_val), ("age", age_pca),
+                   ("the African American / Black identity question", aa_flag)] if pd.isna(value)]
+        if missing:
+            st.info("This model needs " + ", ".join(missing) + " to calculate a result.")
+            st.stop()
         log2_psa = np.log2(psa_val)
 
         if psa_val >= 2:
@@ -996,53 +946,31 @@ elif page == "prostate-screener":
 
         st.metric("Estimated probability of prostate cancer", f"{p_cancer_pct:.1f}%")
 
-        if psa_val >= 2:
-            st.warning(
-                f"You would likely be recommended for a biopsy using standard tests, "
-                f"yet your approximate risk of having prostate cancer is only {p_cancer_pct:.1f}%. "
-                f"Help fund glycoscore to prevent these unnecessary biopsies: "
-                f"750,000 of them per year in the US alone."
-            )
-        else:
-            st.info(
-                "You would not be recommended for a biopsy using standard tests, "
-                "but millions of adults receive unnecessary biopsies each year because of "
-                "these tests. Help fund glycoscore to prevent these unnecessary biopsies: "
-                "750,000 of them per year in the US alone."
-            )
-
-
-
-    st.caption(
-        "Research prototype. Not for clinical use. "
-        "This estimate is based on many assumptions and should not replace "
-        "medical advice, screening, or biopsy."
-    )
 
 
 # ============================================================
 #               INDIVIDUAL SENSITIVITY ANALYSIS
 # ============================================================
-elif page == "sensitivity":
-    st.title("Individual sensitivity analysis")
+def render_sensitivity():
+    project_intro("sensitivity")
     st.caption(
         "These plots use the **same profile** you entered in the "
-        "'CVD/CKD/Diabetes Screener' page as the baseline individual."
+        "'Chronic disease' page as the baseline individual."
     )
 
-    # Read from session state (populated by CVD screener); fall back to sensible defaults
-    age = st.session_state.get("cvd_age", 45)
-    bmi = st.session_state.get("cvd_bmi", 24.7)
-    waist = st.session_state.get("cvd_waist", 95.0)
-    activity = st.session_state.get("cvd_activity", "Moderate")
-    smoker = st.session_state.get("cvd_smoker", "No")
-    sbp = st.session_state.get("cvd_sbp", 120)
-    dbp = st.session_state.get("cvd_dbp", 75)
-    hr = st.session_state.get("cvd_hr", 70)
-    income_ratio = st.session_state.get("cvd_income_ratio", 2.0)
-    education = st.session_state.get("cvd_education", "High school graduate/GED or equivalent")
-    race = st.session_state.get("cvd_race", "Non-Hispanic White")
-    gender = st.session_state.get("cvd_gender", "Male")
+    # Reuse the supplied profile, leaving skipped fields unknown.
+    age = st.session_state.get("cvd_age", np.nan)
+    bmi = st.session_state.get("cvd_bmi", np.nan)
+    waist = st.session_state.get("cvd_waist", np.nan)
+    activity = st.session_state.get("cvd_activity", UNKNOWN)
+    smoker = st.session_state.get("cvd_smoker", UNKNOWN)
+    sbp = st.session_state.get("cvd_sbp", np.nan)
+    dbp = st.session_state.get("cvd_dbp", np.nan)
+    hr = st.session_state.get("cvd_hr", np.nan)
+    income_ratio = st.session_state.get("cvd_income_ratio", np.nan)
+    education = st.session_state.get("cvd_education", UNKNOWN)
+    race = st.session_state.get("cvd_race", UNKNOWN)
+    gender = st.session_state.get("cvd_gender", UNKNOWN)
 
     baseline_df = build_feature_df(
         bmi=bmi, age=age, waist=waist,
@@ -1053,7 +981,10 @@ elif page == "sensitivity":
         education_label=education,
         race_label=race, gender_label=gender
     )
-    baseline_X = prepare_for_model(baseline_df)
+    if baseline_df.isna().all(axis=None):
+        st.info("Enter a profile in the chronic disease screener first.")
+        st.stop()
+    baseline_X = prepare_for_model(baseline_df, impute_numeric=False)
     base_diab, base_ckd, base_cvd = predict_three(baseline_X)
 
     st.markdown(
@@ -1073,7 +1004,6 @@ elif page == "sensitivity":
         "Systolic BP (mmHg)": ("avg_systolic", 90, 180, 40),
         "Diastolic BP (mmHg)": ("avg_diastolic", 50, 110, 40),
         "Resting HR (bpm)": ("avg_HR", 50, 110, 40),
-        "Income-to-poverty ratio": ("FamIncome_to_poverty_ratio", 0.3, 5.0, 40),
     }
 
     sens_label_indiv = st.selectbox(
@@ -1133,7 +1063,6 @@ elif page == "sensitivity":
         "Systolic BP (mmHg)": ("avg_systolic", 90, 180),
         "Diastolic BP (mmHg)": ("avg_diastolic", 50, 110),
         "Resting HR (bpm)": ("avg_HR", 50, 110),
-        "Income-to-poverty ratio": ("FamIncome_to_poverty_ratio", 0.3, 5.0),
     }
 
     colH1, colH2 = st.columns(2)
@@ -1225,38 +1154,39 @@ elif page == "sensitivity":
 # ============================================================
 #                 RESEARCHER TOOLS (POPULATION-BASED)
 # ============================================================
-elif page == "researcher-tools":
+def render_population():
+    project_intro("population")
     # --- Terms of use gate for Researcher tools tab ---
     if "researcher_agreed" not in st.session_state:
         st.session_state["researcher_agreed"] = False
 
     if not st.session_state["researcher_agreed"]:
-        st.markdown("### Terms of use for Researcher tools")
-        st.markdown(
-            """
-        By using the **Researcher tools** in this app, you agree to the following:
+        with st.expander("Usage terms & attribution"):
+            st.markdown(
+                """
+            By using the **Researcher tools** in this app, you agree to the following:
 
-        1. For exploratory **internal** use—such as lab discussions, coursework, or preliminary
-           non-public analyses—you may use figures or tables generated by this tool, provided
-           you cite:
+            1. For exploratory **internal** use—such as lab discussions, coursework, or preliminary
+               non-public analyses—you may use figures or tables generated by this tool, provided
+               you cite:
 
-           **Costa, AM and Iris, BD. Nature Scientific Reports. 2026.**
+               [Foundational study — medRxiv](https://doi.org/10.64898/2025.12.10.25341981)
 
-        2. For **any formal use** of this tool or its outputs in publications—including use in
-           **manuscripts, preprints, external talks, or grant proposals**—you agree to
-           **contact Arthur M. Costa (arthurcosta@uchicago.edu)** to discuss collaboration and
-           **appropriate authorship**.
+            2. For **any formal use** of this tool or its outputs in publications—including use in
+               **manuscripts, preprints, external talks, or grant proposals**—you agree to
+               **contact Arthur M. Costa (arthurcosta@uchicago.edu)** to discuss collaboration and
+               **appropriate authorship**.
 
-           The authors of Costa, AM and Iris, BD. Nature Scientific Reports. 2026. curated the
-           underlying dataset, engineered derived variables, and developed the modelling
-           and population-simulation framework used in this tool. Guidance on methodology
-           can be found in the publication above, or by contacting Arthur directly.
+               The authors of the foundational study curated the
+               underlying dataset, engineered derived variables, and developed the modelling
+               and population-simulation framework used in this tool. Guidance on methodology
+               can be found in the publication above, or by contacting Arthur directly.
 
-        3. To request custom analyses—such as incorporation of laboratory biomarkers,
-           international datasets, or specialized modelling—please contact Arthur
-           (**arthurcosta@uchicago.edu**) to explore potential collaborations.
-            """
-        )
+            3. To request custom analyses—such as incorporation of laboratory biomarkers,
+               international datasets, or specialized modelling—please contact Arthur
+               (**arthurcosta@uchicago.edu**) to explore potential collaborations.
+                """
+            )
 
         with st.form("researcher_terms_form"):
             agree = st.checkbox(
@@ -1273,9 +1203,8 @@ elif page == "researcher-tools":
             # Stop rendering anything else until they agree
             st.stop()
 
-    st.title("Researcher tools & population sensitivity")
     st.caption(
-        "All tools in this tab use a synthetic population sampled from NHANES. "
+        "All tools in this tab use a synthetic population sampled from reference data. "
         "You can modify predictors, compare baseline vs scenario risks, and explore "
         "population-level sensitivity curves and heatmaps."
     )
@@ -1283,10 +1212,10 @@ elif page == "researcher-tools":
     st.subheader("Population scenario simulator")
 
     if not HAVE_NHANES_SIM:
-        st.warning("nhanes_test_for_sim.csv not found. Upload it to enable the simulator.")
+        st.warning("Population reference data are unavailable. Add the data file to enable the simulator.")
     else:
         st.markdown(
-            "Draw a synthetic population from real NHANES rows (with jitter), "
+            "Draw a synthetic population from reference records (with jitter), "
             "modify any subset of predictors, and compare baseline vs scenario risks "
             "overall and by subgroup."
         )
@@ -1318,7 +1247,6 @@ elif page == "researcher-tools":
             "Systolic BP (mmHg)": ("avg_systolic", -40.0, 40.0, 1.0),
             "Diastolic BP (mmHg)": ("avg_diastolic", -30.0, 30.0, 1.0),
             "Resting HR (bpm)": ("avg_HR", -30.0, 30.0, 1.0),
-            "Income-to-poverty ratio": ("FamIncome_to_poverty_ratio", -2.0, 2.0, 0.1),
         }
         selected_numeric = st.multiselect(
             "Select numeric variables to change",
@@ -1702,7 +1630,6 @@ elif page == "researcher-tools":
                 "Systolic BP (mmHg)": ("avg_systolic", 90, 180, 40),
                 "Diastolic BP (mmHg)": ("avg_diastolic", 50, 110, 40),
                 "Resting HR (bpm)": ("avg_HR", 50, 110, 40),
-                "Income-to-poverty ratio": ("FamIncome_to_poverty_ratio", 0.3, 5.0, 40),
             }
 
             pop_sens_label = st.selectbox(
@@ -1843,7 +1770,6 @@ elif page == "researcher-tools":
                 "Systolic BP (mmHg)": ("avg_systolic", 90, 180),
                 "Diastolic BP (mmHg)": ("avg_diastolic", 50, 110),
                 "Resting HR (bpm)": ("avg_HR", 50, 110),
-                "Income-to-poverty ratio": ("FamIncome_to_poverty_ratio", 0.3, 5.0),
             }
 
             colH1p, colH2p = st.columns(2)
@@ -1957,7 +1883,7 @@ elif page == "researcher-tools":
 # ============================================================
 #                  GLOBAL VALIDATION LAB
 # ============================================================
-elif page == "global-validation":
+def render_validation():
     import os as _os
     from sklearn.linear_model import LogisticRegression
     from sklearn.ensemble import RandomForestClassifier
@@ -1975,10 +1901,10 @@ elif page == "global-validation":
     except Exception:
         _HAS_XGB = False
 
-    st.title("Global Validation Lab")
+    project_intro("validation")
     st.caption(
         "Validate any non-laboratory (or laboratory) screening model across up to 90 countries — "
-        "WHO STEPS + NHANES + KNHANES, ~365,000 adults. Build a model here or upload your own, "
+        "International health survey data, ~365,000 adults. Build a model here or upload your own, "
         "choose where to train and where to test, and get per-country discrimination, calibration, "
         "and operating-point metrics with downloadable tables and figures."
     )
@@ -2027,7 +1953,7 @@ elif page == "global-validation":
                                   "on_glucose_meds", "family_history_cvd", "prior_mi_stroke"],
     }
     GV_LABELS = {
-        "age": "Age (years)", "sex": "Sex", "race": "Race/ethnicity (NHANES)",
+        "age": "Age (years)", "sex": "Sex", "race": "Race/ethnicity",
         "education": "Education level", "region": "WHO region", "income_group": "World Bank income group",
         "year": "Survey year", "urban_rural": "Urban/Rural", "subpopulation": "Subpopulation",
         "height_cm": "Height (cm)", "weight_kg": "Weight (kg)", "bmi": "BMI (kg/m²)",
@@ -2187,8 +2113,8 @@ elif page == "global-validation":
     )
 
     presets = {
-        "Train USA (NHANES) → test all other eligible countries": "usa_world",
-        "Train South Korea (KNHANES) → test all other eligible countries": "kor_world",
+        "Train USA → test all other eligible countries": "usa_world",
+        "Train South Korea → test all other eligible countries": "kor_world",
         "Train on ALL eligible → test on ALL eligible (pooled)": "pooled",
         "Custom selection": "custom",
     }
@@ -2431,16 +2357,16 @@ elif page == "global-validation":
         st.dataframe(res_show.round(4), use_container_width=True, hide_index=True)
 
         d1, d2, d3 = st.columns(3)
-        d1.download_button("⬇ Per-country metrics (CSV)",
+        d1.download_button("Per-country metrics (CSV)",
                            res_show.round(5).to_csv(index=False).encode(),
                            "global_validation_metrics.csv", "text/csv", use_container_width=True)
         # cohort summary stats
         summ = (o["te_assembled"].drop(columns=["iso3"])
                 .describe(include="all").transpose().reset_index().rename(columns={"index": "variable"}))
-        d2.download_button("⬇ Cohort summary stats (CSV)",
+        d2.download_button("Cohort summary stats (CSV)",
                            summ.to_csv(index=False).encode(),
                            "global_validation_summary.csv", "text/csv", use_container_width=True)
-        d3.download_button("⬇ Full analysis table (CSV)",
+        d3.download_button("Full analysis table (CSV)",
                            o["te_assembled"].to_csv(index=False).encode(),
                            "global_validation_data.csv", "text/csv", use_container_width=True)
 
@@ -2453,3 +2379,72 @@ elif page == "global-validation":
             "threshold. Prevalence-dependent metrics (PR-AUC, PPV, calibration-in-the-large) are expected "
             "to vary more across countries than AUROC. Research prototype — not for clinical use."
         )
+
+
+# ===========================
+# Project portfolio and dedicated URL routes
+# ===========================
+import html as _html
+
+PORTFOLIO_CSS = ':root{--portfolio-ink:#11131a;--portfolio-paper:#f7f5f2;--portfolio-purple:#5b3a96;--portfolio-line:#d9d1e2}\nhtml,body,[data-testid="stApp"],[data-testid="stAppViewContainer"],[data-testid="stMain"]{background:#f7f5f2;color:#11131a;font-family:Arial,Helvetica,sans-serif}\n[data-testid="stMainBlockContainer"]{max-width:1320px;padding:5.5rem 3rem 4rem}\n[data-testid="stHeader"]{background:#f7f5f2;border-bottom:1px solid #d9d1e2}\n[data-testid="stToolbarActions"],[data-testid="stAppDeployButton"],#MainMenu,[data-testid="stDecoration"],.stDeployButton{display:none!important}\n[data-testid="stHeader"] a{font-size:13px!important}\nh1,h2,h3,h4,p,label,button,input{font-family:Arial,Helvetica,sans-serif}\nh1{letter-spacing:-.055em!important;font-weight:600!important}h2,h3{letter-spacing:-.035em!important}\n[data-testid="stHeading"] h3{font-size:23px;padding-top:18px}\n[data-testid="stWidgetLabel"] p{font-size:13px;color:#514b59}\n[data-baseweb="select"]>div,[data-baseweb="input"],[data-baseweb="textarea"]{background:#fff!important;color:#11131a!important;border-color:#d8d0df!important;border-radius:4px!important}\n[data-baseweb="input"] input{color:#11131a!important}\n[data-testid="stButton"] button[kind="primary"],[data-testid="stFormSubmitButton"] button{background:#5b3a96!important;border:1px solid #5b3a96!important;color:white!important}\n[data-testid="stButton"] button,[data-testid="stDownloadButton"] button{border-radius:3px;font-weight:600;border-color:#b7a8c9}\n[data-testid="stMetric"]{padding:22px;border-top:2px solid #5b3a96;background:#eee8f5;border-radius:0}\n[data-testid="stExpander"]{border:1px solid #d9d1e2;border-radius:3px;background:#f9f7fb}\n[data-testid="stAlert"]{border-radius:3px}\n[data-testid="stCode"]{font-size:12px}\n.portfolio-brand{display:flex;justify-content:space-between;gap:20px;align-items:center;margin:0 0 52px;padding:0 0 22px;border-bottom:1px solid #d9d1e2}\n.portfolio-wordmark{color:#11131a!important;text-decoration:none!important;font-size:19px;font-weight:700;letter-spacing:-.04em}\n.portfolio-wordmark span{color:#5b3a96;font-weight:400;margin-left:8px;font-family:Georgia,serif;font-style:italic}\n.portfolio-brand>div{display:flex;gap:24px}.portfolio-brand>div a{font-size:12px;font-weight:600;color:#5b3a96;text-decoration:none}\n.portfolio-arrow{display:inline-block;width:1em;height:1em;vertical-align:-.1em;fill:none;stroke:currentColor;stroke-width:1.7;flex-shrink:0}\n.portfolio-eyebrow{margin:0 0 24px!important;text-transform:uppercase;letter-spacing:.17em;font-size:10px!important;font-weight:700;color:#5b3a96}\n.portfolio-hero{display:grid;grid-template-columns:1.45fr .8fr;align-items:center;gap:70px;margin-bottom:62px}\n.portfolio-hero h1{font-size:clamp(46px,5.2vw,76px);line-height:1.01;margin:0 0 27px;padding:0;max-width:12em}\n.portfolio-hero h1 em{font-family:Georgia,serif;font-weight:400;color:#5b3a96}\n.portfolio-hero p{font-size:16px;line-height:1.75;max-width:32em;color:#645c6b;margin:0}\n.portfolio-flow{padding:34px 30px;background:#2b203c;color:white;min-height:280px;display:flex;flex-direction:column;justify-content:space-between}\n.portfolio-flow small{font-size:9px;letter-spacing:.12em;color:#cdbfe2;text-transform:uppercase}\n.flow-step{display:flex;align-items:center;gap:17px;font-size:21px;letter-spacing:-.03em;padding:21px 0;border-bottom:1px solid #ffffff25}\n.flow-step:last-child{border:0;padding-bottom:0}.flow-step span{width:30px;height:30px;border:1px solid #9c83bc;border-radius:50%;display:grid;place-items:center;font-size:10px;color:#cdbfe2}\n.project-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));border-top:1px solid #cabdd8;border-left:1px solid #cabdd8}\n.project-card{grid-column:span 3;display:flex;flex-direction:column;min-height:300px;padding:32px;border-right:1px solid #cabdd8;border-bottom:1px solid #cabdd8;color:#11131a!important;text-decoration:none!important;background:#f7f5f2;transition:background .2s}\n.project-card:nth-child(n+3){grid-column:span 2;min-height:300px}\n.project-card:first-child{background:#eee8f5}.project-card:hover{background:#e4d9f0}\n.project-card:focus-visible{outline:3px solid #5b3a96;outline-offset:-4px}\n.project-card-top{display:flex;justify-content:space-between;gap:20px;align-items:center;margin-bottom:38px}\n.project-card-top>span{font-family:Georgia,serif;font-size:26px;color:#5b3a96}.project-card-top>small{font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:#6e627a}\n.project-card h2{margin:0 0 16px;padding:0;font-size:30px;line-height:1.1;letter-spacing:-.045em;font-weight:600}\n.project-card p{font-size:13px;line-height:1.7;margin:0 0 28px;color:#665e6d;max-width:36em}\n.project-card-link{margin-top:auto;font-size:12px;font-weight:700;display:flex;justify-content:space-between;align-items:center;color:#5b3a96}\n.portfolio-evidence{display:flex;justify-content:space-between;align-items:center;gap:30px;padding:29px 0;margin-top:24px;border-bottom:1px solid #d9d1e2}\n.portfolio-evidence p{margin:0;color:#6c6275;font-size:12px;line-height:1.7}.portfolio-evidence a{font-size:12px;color:#5b3a96;font-weight:600;text-decoration:none;white-space:nowrap}\n.project-intro{padding-bottom:30px;margin-bottom:20px;border-bottom:1px solid #d9d1e2}.project-intro h1{font-size:clamp(38px,4.5vw,62px);line-height:1.05;margin:0 0 20px;padding:0;max-width:17em}\n.project-intro>p:not(.portfolio-eyebrow){font-size:16px;line-height:1.7;color:#655d6e;max-width:52em;margin:0 0 20px}\n.project-tags{display:flex;flex-wrap:wrap;gap:10px 22px}.project-tags span{font-size:10px;letter-spacing:.04em;color:#766882}.project-tags a{font-size:11px;color:#5b3a96;text-decoration:none;font-weight:600}\n.portfolio-footer{display:flex;justify-content:space-between;gap:20px;padding-top:26px;margin-top:42px;border-top:1px solid #d9d1e2;color:#72677d;font-size:10px;line-height:1.7}\n.portfolio-footer a{color:#5b3a96;text-decoration:none}\n@media(max-width:900px){[data-testid="stMainBlockContainer"]{padding:5rem 28px 3rem}.portfolio-hero{grid-template-columns:1fr .7fr;gap:32px}.portfolio-hero h1{font-size:52px}.project-card{padding:26px}.project-card:nth-child(n+3){grid-column:span 3}.project-card:last-child{grid-column:span 6;min-height:240px}.portfolio-brand{margin-bottom:38px}.project-card h2{font-size:28px}}\n@media(max-width:600px){[data-testid="stMainBlockContainer"]{padding:4.7rem 20px 2rem}.portfolio-brand{gap:16px;margin-bottom:34px;align-items:flex-start}.portfolio-brand>div{gap:14px}.portfolio-brand>div a{font-size:10px}.portfolio-wordmark{font-size:17px}.portfolio-wordmark span{display:block;margin:4px 0 0;font-size:14px}.portfolio-hero{grid-template-columns:1fr;gap:28px;margin-bottom:36px}.portfolio-hero h1{font-size:49px;line-height:1.04;max-width:11em}.portfolio-hero p{font-size:15px}.portfolio-flow{min-height:0;padding:25px}.flow-step{font-size:20px;padding:16px 0}.project-grid{grid-template-columns:1fr}.project-card,.project-card:nth-child(n+3),.project-card:last-child{grid-column:1;min-height:270px;padding:27px}.project-card-top{margin-bottom:26px}.project-card h2{font-size:31px}.portfolio-evidence{align-items:flex-start;flex-direction:column;gap:16px}.portfolio-evidence a{white-space:normal}.project-intro h1{font-size:40px}.project-intro>p:not(.portfolio-eyebrow){font-size:15px}.portfolio-footer{flex-direction:column;gap:10px}[data-testid="stMetric"]{padding:16px}[data-testid="stMetricValue"]{font-size:28px}}\n@media(prefers-reduced-motion:reduce){.project-card{transition:none}}\n\n.portfolio-arrow{background:currentColor;mask:url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgc3Ryb2tlLXdpZHRoPSIxLjciPjxwYXRoIGQ9Ik01IDE5IDE5IDVNNSA1aDE0djE0Ii8+PC9zdmc+) center/contain no-repeat;-webkit-mask:url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgc3Ryb2tlLXdpZHRoPSIxLjciPjxwYXRoIGQ9Ik01IDE5IDE5IDVNNSA1aDE0djE0Ii8+PC9zdmc+) center/contain no-repeat}\n'
+PROJECTS = {'chronic-disease': {'n': '01', 'nav': 'Chronic disease', 'title': 'Chronic disease screening', 'category': 'Disease-likelihood models', 'description': 'Estimate the likelihood of a suite of chronic diseases from non-invasive information. Start with what you know; the models handle skipped inputs.', 'card': 'Non-invasive inputs. Calibrated predictions for a suite of chronic diseases.', 'tags': ['Individual predictions', 'Missing-input support'], 'legacy': 'cvd-screener'}, 'prostate-cancer': {'n': '02', 'nav': 'Cancer', 'title': 'Prostate cancer screening', 'category': 'Cancer screening', 'description': 'Explore a prostate-cancer risk model combining age, PSA, and demographic information.', 'card': 'A focused cancer-risk calculator combining age, PSA, and demographic information.', 'tags': ['PSA-based model', 'Individual predictions'], 'legacy': 'prostate-screener'}, 'sensitivity': {'n': '03', 'nav': 'Sensitivity', 'title': 'Individual sensitivity analysis', 'category': 'Model exploration', 'description': 'See how a person’s predicted disease likelihood changes as inputs vary. Explore one-variable curves and two-variable heatmaps.', 'card': 'Explore which inputs change a person’s prediction with curves and heatmaps.', 'tags': ['One-variable curves', 'Two-variable heatmaps'], 'legacy': 'sensitivity'}, 'population': {'n': '04', 'nav': 'Population', 'title': 'Population scenario modeling', 'category': 'Population modeling', 'description': 'Compare baseline and modified populations, then examine changes in predicted disease likelihood across subgroups.', 'card': 'Simulate population scenarios and compare predicted disease likelihood by subgroup.', 'tags': ['Scenario comparisons', 'Subgroup analysis'], 'legacy': 'researcher-tools'}, 'validation': {'n': '05', 'nav': 'Validation', 'title': 'Model training & validation', 'category': 'Model-building platform', 'description': 'Build a new screening model or upload an existing one. Choose training and evaluation populations, then compare discrimination and calibration across countries.', 'card': 'Create, train, and evaluate models across international populations.', 'tags': ['Train or upload', 'Cross-country evaluation'], 'legacy': 'global-validation'}}
+PUBLIC_ORIGIN = "https://www.costa-risk-modeling.org"
+PAPER_URL = "https://doi.org/10.64898/2025.12.10.25341981"
+SOURCE_URL = "https://github.com/arthur-ui/Chronic-Disease-Risk-Models"
+ARROW = '<span class="portfolio-arrow" aria-hidden="true"></span>'
+_embed_mode = st.query_params.get("embedded", "false").lower() == "true"
+
+
+def project_intro(slug):
+    info = PROJECTS[slug]
+    st.set_page_config(page_title=info["title"] + " | Arthur Costa")
+    tags = ''.join('<span>' + _html.escape(t) + '</span>' for t in info['tags'])
+    st.html(f'<section class="project-intro"><p class="portfolio-eyebrow">PROJECT {info["n"]} / {info["category"]}</p>'
+            f'<h1>{info["title"]}</h1><p>{info["description"]}</p>'
+            f'<div class="project-tags">{tags}<a href="{SOURCE_URL}" target="_blank" rel="noopener noreferrer">View source {ARROW}</a></div></section>')
+
+
+def render_projects():
+    st.set_page_config(page_title="Arthur Costa | Selected projects")
+    st.html('''<section class="portfolio-hero"><div><p class="portfolio-eyebrow">SCREENING / SIMULATION / VALIDATION</p>
+    <h1>Models that find<br><em>likely disease.</em></h1>
+    <p>Five interactive projects in disease screening, population modeling, and model validation. Built by Arthur Costa.</p></div>
+    <aside class="portfolio-flow"><small>A connected modeling workflow</small><div class="flow-step"><span>01</span>Screen the individual</div><div class="flow-step"><span>02</span>Explore the population</div><div class="flow-step"><span>03</span>Build the next model</div></aside></section>''')
+    cards = []
+    for slug, info in PROJECTS.items():
+        cards.append(f'<a class="project-card" href="/{slug}" target="_self"><div class="project-card-top"><span>{info["n"]}</span><small>{info["category"]}</small></div>'
+                     f'<h2>{info["title"]}</h2><p>{info["card"]}</p><div class="project-card-link">Open project {ARROW}</div></a>')
+    st.html('<div class="project-grid">' + ''.join(cards) + '</div>')
+    st.html(f'<div class="portfolio-evidence"><p>The screening work began with a foundational study.<br>The model suite has since expanded to cancer and other conditions.</p>'
+            f'<a href="{PAPER_URL}" target="_blank" rel="noopener noreferrer">Read the foundational study {ARROW}</a></div>')
+
+
+_callbacks = {"chronic-disease": render_chronic_disease, "prostate-cancer": render_prostate_cancer,
+              "sensitivity": render_sensitivity, "population": render_population, "validation": render_validation}
+_home_page = st.Page(render_projects, title="Projects", default=True)
+_project_pages = {slug: st.Page(_callbacks[slug], title=info["nav"], url_path=slug) for slug, info in PROJECTS.items()}
+_active_page = st.navigation([_home_page, *_project_pages.values()], position="hidden" if _embed_mode else "top")
+st.html('<style>' + PORTFOLIO_CSS + '</style>')
+
+if _embed_mode:
+    # Preserve the Oxum integration and every previously shared query-string URL.
+    st.html('<style>[data-testid="stHeader"]{display:none!important}[data-testid="stMainBlockContainer"]{padding-top:2rem}</style>')
+    _legacy_to_slug = {info['legacy']: slug for slug, info in PROJECTS.items()}
+    _slug = _legacy_to_slug.get(st.query_params.get('page', 'cvd-screener'), 'chronic-disease')
+    _choices = list(PROJECTS)
+    _selected = st.selectbox('Project', _choices, index=_choices.index(_slug), format_func=lambda x: PROJECTS[x]['title'])
+    if _selected != _slug:
+        st.query_params['page'] = PROJECTS[_selected]['legacy']
+        st.rerun()
+    _callbacks[_selected]()
+else:
+    _legacy = st.query_params.get('page')
+    if _legacy:
+        _legacy_to_slug = {info['legacy']: slug for slug, info in PROJECTS.items()}
+        del st.query_params['page']
+        if _legacy in _legacy_to_slug:
+            st.switch_page(_project_pages[_legacy_to_slug[_legacy]])
+    st.html(f'<header class="portfolio-brand"><a class="portfolio-wordmark" href="/" target="_self">Arthur Costa <span>Selected projects</span></a>'
+            f'<div><a href="{SOURCE_URL}" target="_blank" rel="noopener noreferrer">GitHub {ARROW}</a><a href="https://oxumglyco.com" target="_blank" rel="noopener noreferrer">Oxum {ARROW}</a></div></header>')
+    _active_page.run()
+    st.html(f'<footer class="portfolio-footer"><span>Arthur Costa / Disease screening & modeling</span><a href="{SOURCE_URL}" target="_blank" rel="noopener noreferrer">Explore the code {ARROW}</a></footer>')
