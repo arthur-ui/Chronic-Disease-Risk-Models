@@ -105,7 +105,7 @@ def bin_income_ratio(r: float) -> str:
         return ">=4.0"
 
 
-# 🔧 Add this class so joblib can unpickle your models
+# Add this class so joblib can unpickle your models
 class CalibratedPipeline:
     """Wraps a fitted sklearn Pipeline (with predict_proba)
     and an IsotonicRegression calibrator."""
@@ -2151,7 +2151,7 @@ def render_validation():
     # threshold for operating-point metrics
     gv_thr = st.slider("Decision threshold for sensitivity / specificity / PPV", 0.01, 0.99, 0.50, 0.01)
 
-    run_gv = st.button("🚀 Run global validation", type="primary", use_container_width=True)
+    run_gv = st.button("Run global validation", type="primary", use_container_width=True)
 
     # -----------------------------------------------------------------
     # Metric helpers
@@ -2415,7 +2415,7 @@ def render_projects():
         cards.append(f'<a class="project-card" href="/{slug}" target="_self"><div class="project-card-top"><span>{info["n"]}</span><small>{info["category"]}</small></div>'
                      f'<h2>{info["title"]}</h2><p>{info["card"]}</p><div class="project-card-link">Open project {ARROW}</div></a>')
     st.html('<div class="project-grid">' + ''.join(cards) + '</div>')
-    st.html(f'<div class="portfolio-evidence"><p>The screening work began with a foundational study.<br>The model suite has since expanded to cancer and other conditions.</p>'
+    st.html(f'<div class="portfolio-evidence">'
             f'<a href="{PAPER_URL}" target="_blank" rel="noopener noreferrer">Read the foundational study {ARROW}</a></div>')
 
 

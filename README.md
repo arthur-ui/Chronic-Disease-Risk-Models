@@ -12,7 +12,7 @@ Five interactive projects with dedicated URLs, built with Streamlit.
 | Population scenario modeling | https://www.costa-risk-modeling.org/population |
 | Model training and validation | https://www.costa-risk-modeling.org/validation |
 
-The screening work began with the [foundational medRxiv study](https://doi.org/10.64898/2025.12.10.25341981). The model suite has since expanded to cancer and other conditions.
+[Read the foundational study](https://doi.org/10.64898/2025.12.10.25341981).
 
 ## Run locally
 
